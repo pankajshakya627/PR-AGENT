@@ -19,8 +19,8 @@ An intelligent, agentic system designed to automate and enhance Pull Request wor
 
 1.  **Clone the repository**:
     ```bash
-    git clone <repository-url>
-    cd pr-agent
+    git clone https://github.com/pankajshakya627/PR-AGENT.git
+    cd PR-AGENT
     ```
 
 2.  **Create and activate a virtual environment**:
@@ -77,23 +77,31 @@ The server exposes the following tools:
 
 ```
 pr-agent
-├─ README.md
-├─ main.py
-├─ requirements.txt
-├─ run_agent.sh
-├─ src
-│  ├─ __init__.py
-│  ├─ agents
-│  │  ├─ base.py
-│  │  └─ specialized.py
-│  ├─ analyzer.py
-│  ├─ config.py
-│  ├─ github_provider.py
-│  ├─ graph.py
-│  ├─ state.py
-│  ├─ toon_io.py
-│  └─ utils.py
-└─ tests
+├── .env
+├── .gitignore
+├── README.md
+├── main.py
+├── requirements.txt
+├── run_agent.sh
+├── src
+│   ├── __init__.py
+│   ├── __pycache__
+│   ├── agents
+│   │   ├── __pycache__
+│   │   ├── base.py
+│   │   └── specialized.py
+│   ├── analyzer.py
+│   ├── config.py
+│   ├── github_provider.py
+│   ├── graph.py
+│   ├── prompts.py
+│   ├── state.py
+│   ├── toon_io.py
+│   └── utils.py
+├── tests
+│   ├── test_functionality.py
+│   └── verify_mcp.py
+└── venv
 ```
 
 ## TOON Format
