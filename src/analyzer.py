@@ -1,6 +1,7 @@
 from typing import Dict, List
 from langchain_core.prompts import ChatPromptTemplate
 from src.config import get_llm_config
+from src.prompts import TASK_DEPENDENCY_SYSTEM_PROMPT
 import json
 import os
 
@@ -37,7 +38,7 @@ class TaskDependencyAnalyzer:
         Output format: {"task_name": ["dependency1", "dependency2"]}
         """
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a project manager. Analyze the following PR requirements and identify the necessary tasks and their dependencies. Return the result as a JSON object where keys are task names (code_review, testing, documentation, security) and values are lists of dependencies."),
+            ("system", TASK_DEPENDENCY_SYSTEM_PROMPT),
             ("user", "{requirements}")
         ])
 

@@ -22,7 +22,8 @@ from src.prompts import (
     PR_DESCRIPTION_SYSTEM_PROMPT,
     CODE_IMPROVEMENT_SYSTEM_PROMPT,
     PR_QUESTIONS_SYSTEM_PROMPT,
-    CHANGELOG_SYSTEM_PROMPT
+    CHANGELOG_SYSTEM_PROMPT,
+    TASK_DEPENDENCY_SYSTEM_PROMPT
 )
 
 mcp = FastMCP("pr-agent-system")
@@ -62,6 +63,12 @@ def pr_questions_prompt() -> str:
 def changelog_prompt() -> str:
     """Returns the system prompt for the Changelog Agent."""
     return CHANGELOG_SYSTEM_PROMPT
+
+@mcp.prompt()
+def task_dependency_prompt() -> str:
+    """Returns the system prompt for the Task Dependency Analyzer."""
+    return TASK_DEPENDENCY_SYSTEM_PROMPT
+
 
 @mcp.tool()
 async def create_pull_request(requirements: str) -> Dict[str, Any]:
