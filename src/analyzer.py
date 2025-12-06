@@ -29,6 +29,16 @@ class TaskDependencyAnalyzer:
                 )
             except ImportError:
                 raise ImportError("langchain-anthropic is not installed. Please install it or use OpenAI.")
+        elif self.provider == "local":
+            from langchain_openai import ChatOpenAI
+            self.llm = ChatOpenAI(
+                model=config["local_model"],
+                base_url=config["local_base_url"],
+                api_key="not-required",
+                temperature=0.1,
+                streaming=True,
+                max_tokens=config["max_tokens"]
+            )
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
 
