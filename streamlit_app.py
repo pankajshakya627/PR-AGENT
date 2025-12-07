@@ -512,7 +512,7 @@ if st.session_state.results:
         with st.expander(f"Results: {tool}", expanded=True):
             if isinstance(result, dict):
                 # Try multiple possible keys
-                possible_keys = ['content', 'review', 'description', 'pr_description', 'changelog_entry', 
+                possible_keys = ['content', 'code_review', 'review', 'description', 'pr_description', 'changelog_entry', 
                                 'code_improvements', 'improvements', 'answer', 'response']
                 content = None
                 for key in possible_keys:
