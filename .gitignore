@@ -84,3 +84,6 @@ credentials/
 
 # Backup/Workback directory
 wokback/
+
+# User data
+data/users.json

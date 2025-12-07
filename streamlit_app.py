@@ -21,6 +21,10 @@ from src.agents.specialized import (
     CodeReviewAgent, PRDescriptionAgent, CodeImprovementAgent,
     PRQuestionsAgent, ChangelogAgent
 )
+from src.auth import (
+    create_user, authenticate_user, validate_email, 
+    validate_password, validate_username, email_exists, username_exists
+)
 
 # Page configuration
 st.set_page_config(
@@ -50,6 +54,15 @@ st.markdown("""
         font-family: 'Courier New', monospace;
         white-space: pre-wrap;
     }
+    .auth-container {
+        max-width: 400px;
+        margin: 0 auto;
+        padding: 2rem;
+    }
+    .auth-header {
+        text-align: center;
+        margin-bottom: 2rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -58,9 +71,128 @@ if 'provider' not in st.session_state:
     st.session_state.provider = 'openai'
 if 'results' not in st.session_state:
     st.session_state.results = {}
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user' not in st.session_state:
+    st.session_state.user = None
+if 'auth_page' not in st.session_state:
+    st.session_state.auth_page = 'login'
+
+
+def show_login_page():
+    """Display login form."""
+    st.markdown("<div class='auth-header'><h1>🤖 PR-Agent</h1><p>Sign in to continue</p></div>", unsafe_allow_html=True)
+    
+    with st.form("login_form"):
+        username_or_email = st.text_input("Username or Email", placeholder="Enter username or email")
+        password = st.text_input("Password", type="password", placeholder="Enter password")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submit = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+        with col2:
+            if st.form_submit_button("Create Account", use_container_width=True):
+                st.session_state.auth_page = 'register'
+                st.rerun()
+        
+        if submit:
+            if not username_or_email or not password:
+                st.error("Please fill in all fields")
+            else:
+                success, user, message = authenticate_user(username_or_email, password)
+                if success:
+                    st.session_state.authenticated = True
+                    st.session_state.user = user
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
+
+
+def show_registration_page():
+    """Display registration form with validation."""
+    st.markdown("<div class='auth-header'><h1>🤖 PR-Agent</h1><p>Create your account</p></div>", unsafe_allow_html=True)
+    
+    with st.form("register_form"):
+        username = st.text_input("Username", placeholder="Choose a username (3-20 characters)")
+        email = st.text_input("Email", placeholder="Enter your email")
+        password = st.text_input("Password", type="password", placeholder="Min 8 chars, 1 uppercase, 1 number")
+        confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
+        with col2:
+            if st.form_submit_button("Back to Login", use_container_width=True):
+                st.session_state.auth_page = 'login'
+                st.rerun()
+        
+        if submit:
+            # Validate all fields
+            errors = []
+            
+            # Check username
+            valid, msg = validate_username(username)
+            if not valid:
+                errors.append(msg)
+            elif username_exists(username):
+                errors.append("Username already exists")
+            
+            # Check email
+            valid, msg = validate_email(email)
+            if not valid:
+                errors.append(msg)
+            elif email_exists(email):
+                errors.append("Email already registered")
+            
+            # Check password
+            valid, msg = validate_password(password)
+            if not valid:
+                errors.append(msg)
+            
+            # Check password match
+            if password != confirm_password:
+                errors.append("Passwords do not match")
+            
+            if errors:
+                for error in errors:
+                    st.error(error)
+            else:
+                success, message = create_user(username, email, password)
+                if success:
+                    st.success(message + " Please sign in.")
+                    st.session_state.auth_page = 'login'
+                    st.rerun()
+                else:
+                    st.error(message)
+
+
+def logout():
+    """Log out the current user."""
+    st.session_state.authenticated = False
+    st.session_state.user = None
+    st.rerun()
+
+
+# ============== AUTHENTICATION CHECK ==============
+if not st.session_state.authenticated:
+    if st.session_state.auth_page == 'login':
+        show_login_page()
+    else:
+        show_registration_page()
+    st.stop()  # Stop execution here if not authenticated
+
+# ============== MAIN APP (after authentication) ==============
 
 # Sidebar - Configuration
 with st.sidebar:
+    # User info and logout
+    st.markdown(f"👤 **{st.session_state.user['username']}**")
+    if st.button("🚪 Logout", use_container_width=True):
+        logout()
+    
+    st.divider()
+    
     st.title("⚙️ Configuration")
     
     # Provider Selection
