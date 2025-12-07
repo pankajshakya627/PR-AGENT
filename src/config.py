@@ -4,7 +4,7 @@ from typing import Dict, Any, Literal
 # ============================================================================
 # LLM Configuration
 # ============================================================================
-# Provider options: "openai", "anthropic", "local", "openrouter"
+# Provider options: "openai", "anthropic", "local", "openrouter", "groq"
 # Set via environment variable LLM_PROVIDER (default: openrouter)
 
 LLM_CONFIG = {
@@ -19,6 +19,10 @@ LLM_CONFIG = {
     # OpenRouter Configuration (for models like Grok, Llama, etc.)
     "openrouter_model": os.getenv("OPENROUTER_MODEL", "x-ai/grok-beta"),
     "openrouter_base_url": "https://openrouter.ai/api/v1",
+    
+    # Groq Configuration (for fast Llama, Mixtral models)
+    "groq_model": os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+    "groq_base_url": "https://api.groq.com/openai/v1",
     
     # Local LLM Configuration (for llama.cpp, Ollama, LM Studio, etc.)
     "local_base_url": os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:12434/engines/llama.cpp/v1"),

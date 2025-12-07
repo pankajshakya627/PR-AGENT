@@ -37,6 +37,25 @@ cp .env.example .env  # Create if doesn't exist
 
 ---
 
+### 🚀 CI/CD Integration (GitHub Actions)
+
+PR-Agent can automatically review all your PRs via GitHub Actions!
+
+**Quick Setup:**
+1. Add `OPENAI_API_KEY` to repository secrets
+2. Push the workflow (already included in `.github/workflows/`)
+3. Done! PR-Agent reviews every PR automatically
+
+**Features:**
+- ✅ Auto code review on every PR
+- ✅ Label-based control (`pr-agent:all`, `pr-agent:describe`, etc.)
+- ✅ Manual trigger from Actions tab
+- ✅ Comments posted directly on PR
+
+📖 **Full Setup Guide:** See [CICD_SETUP.md](CICD_SETUP.md)
+
+---
+
 ### Usage Option 1: FastMCP Server (Recommended)
 
 The PR-Agent exposes all functionality via FastMCP protocol for use with Claude Desktop or other MCP clients.
@@ -49,6 +68,31 @@ python main.py
 
 # Or use the helper script
 ./run_agent.sh
+```
+
+#### Test with MCP Inspector (Recommended for Development)
+
+Use the FastMCP development server with inspector UI:
+
+```bash
+# Install uv if you haven't already
+# curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Run with MCP Inspector
+uv run fastmcp dev main.py
+```
+
+This will:
+- ✅ Start the MCP server
+- ✅ Open the MCP Inspector UI in your browser
+- ✅ Allow you to test tools interactively
+- ✅ View logs and debug issues
+
+**Expected Output:**
+```
+🤖 Using LLM provider: local
+Starting MCP inspector...
+Inspector UI: http://localhost:5173
 ```
 
 #### Available MCP Tools
@@ -74,7 +118,33 @@ Access system prompts for each agent:
 
 ---
 
-### Usage Option 2: Direct Python API
+### Usage Option 2: Streamlit Web UI (User-Friendly Interface)
+
+For a graphical interface to interact with PR-Agent:
+
+```bash
+# Install streamlit (if not already installed)
+pip install streamlit
+
+# Launch the UI
+./run_streamlit.sh
+
+# Or directly
+streamlit run streamlit_app.py
+```
+
+**Features:**
+- ✅ **Provider Selection** - Switch between OpenAI, Anthropic, OpenRouter, Local LLM
+- ✅ **Interactive Forms** - Easy input for PR URLs and questions
+- ✅ **Live Results** - See analysis results in real-time
+- ✅ **Configuration UI** - No need to edit .env files
+- ✅ **History** - View previous analysis results
+
+The UI will open in your browser at `http://localhost:8501`
+
+---
+
+### Usage Option 3: Direct Python API
 
 Use the PR-Agent directly from Python scripts or terminal.
 

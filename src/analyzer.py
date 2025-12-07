@@ -58,6 +58,20 @@ class TaskDependencyAnalyzer:
                 raise ImportError("langchain-openai is not installed. Please install it with: pip install langchain-openai")
             except Exception as e:
                 raise ConnectionError(f"Failed to connect to local LLM at {config['local_base_url']}: {e}")
+        elif self.provider == "groq":
+            try:
+                from langchain_openai import ChatOpenAI
+                self.llm = ChatOpenAI(
+                    model=config["groq_model"],
+                    base_url=config["groq_base_url"],
+                    api_key=os.getenv("GROQ_API_KEY"),
+                    temperature=config["temperature"],
+                    max_tokens=config["max_tokens"]
+                )
+            except ImportError:
+                raise ImportError("langchain-openai is not installed. Please install it with: pip install langchain-openai")
+            except Exception as e:
+                raise ConnectionError(f"Failed to connect to Groq: {e}")
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
 

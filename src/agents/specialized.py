@@ -55,6 +55,15 @@ class BaseLLMAgent(BaseAgent):
                 streaming=True,
                 max_tokens=config["max_tokens"]
             )
+        elif self.provider == "groq":
+            from langchain_openai import ChatOpenAI
+            self.llm = ChatOpenAI(
+                model=config["groq_model"],
+                base_url=config["groq_base_url"],
+                api_key=os.getenv("GROQ_API_KEY"),
+                temperature=config["temperature"],
+                max_tokens=config["max_tokens"]
+            )
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
 
