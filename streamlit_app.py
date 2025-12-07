@@ -490,11 +490,12 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
 if st.session_state.results:
     st.subheader("📊 Results")
     
-    for tool, result in st.session_state.results.items():
+    # Show latest results first
+    for tool, result in reversed(list(st.session_state.results.items())):
         with st.expander(f"Results: {tool}", expanded=True):
             if isinstance(result, dict):
                 # Try multiple possible keys
-                possible_keys = ['content', 'review', 'description', 'changelog_entry', 
+                possible_keys = ['content', 'review', 'description', 'pr_description', 'changelog_entry', 
                                 'code_improvements', 'improvements', 'answer', 'response']
                 content = None
                 for key in possible_keys:
