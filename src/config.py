@@ -5,10 +5,10 @@ from typing import Dict, Any, Literal
 # LLM Configuration
 # ============================================================================
 # Provider options: "openai", "anthropic", "local", "openrouter"
-# Set via environment variable LLM_PROVIDER (default: openai)
+# Set via environment variable LLM_PROVIDER (default: openrouter)
 
 LLM_CONFIG = {
-    "provider": os.getenv("LLM_PROVIDER", "openai"),
+    "provider": os.getenv("LLM_PROVIDER", "openrouter"),  # Default to openrouter
     
     # OpenAI Configuration
     "openai_model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
