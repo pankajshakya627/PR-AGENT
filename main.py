@@ -1,10 +1,16 @@
+"""PR-Agent MCP Server - Provides tools for PR analysis via FastMCP."""
+from typing import Dict, Any, List
+
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastmcp import FastMCP
+from fastmcp import FastMCP  # noqa: E402
 
+# Check PyGithub is installed
 try:
-    import github
+    import importlib.util
+    if importlib.util.find_spec("github") is None:
+        raise ImportError()
 except ImportError:
     print("\n❌ Error: 'PyGithub' not found.")
     print("Please ensure you are running in the virtual environment:")
@@ -14,10 +20,9 @@ except ImportError:
     print("  ./venv/bin/python main.py\n")
     exit(1)
 
-from src.graph import app
-from typing import Dict, Any, List
-from src.config import LLM_CONFIG, AGENT_CONFIG
-from src.prompts import (
+from src.graph import app  # noqa: E402
+from src.config import LLM_CONFIG, AGENT_CONFIG  # noqa: E402
+from src.prompts import (  # noqa: E402
     CODE_REVIEW_SYSTEM_PROMPT,
     PR_DESCRIPTION_SYSTEM_PROMPT,
     CODE_IMPROVEMENT_SYSTEM_PROMPT,

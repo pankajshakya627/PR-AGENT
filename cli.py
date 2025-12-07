@@ -17,13 +17,13 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 load_dotenv()
 
-from src.config import get_llm_config
-from src.github_provider import GitHubProvider
-from src.github_commenter import GitHubCommenter
-from src.agents.specialized import (
+from src.config import get_llm_config  # noqa: E402
+from src.github_provider import GitHubProvider  # noqa: E402
+from src.github_commenter import GitHubCommenter  # noqa: E402
+from src.agents.specialized import (  # noqa: E402
     CodeReviewAgent,
     PRDescriptionAgent,
     CodeImprovementAgent,
@@ -267,7 +267,7 @@ async def main():
                 if success:
                     print(f"✅ Comment posted to PR #{pr_number}")
                 else:
-                    print(f"❌ Failed to post comment")
+                    print("❌ Failed to post comment")
         
         # Print to stdout
         print(formatted_output)
