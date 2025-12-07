@@ -16,38 +16,86 @@ from src.prompts import (
 )
 
 class BaseLLMAgent(BaseAgent):
+    # Provider fallback order
+    PROVIDER_ORDER = ["groq", "openrouter", "openai", "anthropic"]
+    
     def __init__(self):
         config = get_llm_config()
-        self.provider = config["provider"]
+        self.config = config
+        self.llm = None
+        self.provider = None
         
-        if self.provider == "openai":
+        # Try providers in order until one works
+        providers_to_try = [config["provider"]] + [p for p in self.PROVIDER_ORDER if p != config["provider"]]
+        
+        for provider in providers_to_try:
+            try:
+                self.llm = self._create_llm(provider, config)
+                self.provider = provider
+                break
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to initialize {provider}: {e}, trying next provider...")
+                continue
+        
+        if self.llm is None:
+            raise ValueError("All LLM providers failed to initialize")
+    
+    def _create_llm(self, provider: str, config: dict):
+        """Create LLM instance for given provider."""
+        if provider == "groq":
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key:
+                raise ValueError("GROQ_API_KEY not set")
             from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=config["openai_model"],
-                api_key=os.getenv("OPENAI_API_KEY"),
-                temperature=0.2,
-                max_tokens=config["max_tokens"]
-            )
-        elif self.provider == "anthropic":
-            from langchain_anthropic import ChatAnthropic
-            self.llm = ChatAnthropic(
-                model=config["anthropic_model"],
-                api_key=os.getenv("ANTHROPIC_API_KEY"),
-                temperature=0.2,
-                max_tokens=config["max_tokens"]
-            )
-        elif self.provider == "openrouter":
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=config["openrouter_model"],
-                base_url=config["openrouter_base_url"],
-                api_key=os.getenv("OPENROUTER_API_KEY"),
+            model = config["groq_model"] or "llama-3.1-8b-instant"
+            return ChatOpenAI(
+                model=model,
+                base_url=config["groq_base_url"],
+                api_key=api_key,
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
-        elif self.provider == "local":
+        elif provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                raise ValueError("OPENROUTER_API_KEY not set")
             from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
+            model = config["openrouter_model"] or "amazon/nova-2-lite-v1:free"
+            return ChatOpenAI(
+                model=model,
+                base_url=config["openrouter_base_url"],
+                api_key=api_key,
+                temperature=config["temperature"],
+                max_tokens=config["max_tokens"]
+            )
+        elif provider == "openai":
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("OPENAI_API_KEY not set")
+            from langchain_openai import ChatOpenAI
+            model = config["openai_model"] or "gpt-4.1-mini"
+            return ChatOpenAI(
+                model=model,
+                api_key=api_key,
+                temperature=0.2,
+                max_tokens=config["max_tokens"]
+            )
+        elif provider == "anthropic":
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise ValueError("ANTHROPIC_API_KEY not set")
+            from langchain_anthropic import ChatAnthropic
+            model = config["anthropic_model"] or "claude-sonnet-4-5-20250929"
+            return ChatAnthropic(
+                model=model,
+                api_key=api_key,
+                temperature=0.2,
+                max_tokens=config["max_tokens"]
+            )
+        elif provider == "local":
+            from langchain_openai import ChatOpenAI
+            return ChatOpenAI(
                 model=config["local_model"],
                 base_url=config["local_base_url"],
                 api_key="not-required",
@@ -55,17 +103,8 @@ class BaseLLMAgent(BaseAgent):
                 streaming=True,
                 max_tokens=config["max_tokens"]
             )
-        elif self.provider == "groq":
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=config["groq_model"],
-                base_url=config["groq_base_url"],
-                api_key=os.getenv("GROQ_API_KEY"),
-                temperature=config["temperature"],
-                max_tokens=config["max_tokens"]
-            )
         else:
-            raise ValueError(f"Unsupported LLM provider: {self.provider}")
+            raise ValueError(f"Unsupported LLM provider: {provider}")
 
     async def _get_diff(self, context: PRAgentState) -> str:
         pr_url = context.get("pr_url")
