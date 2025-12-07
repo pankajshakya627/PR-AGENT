@@ -403,6 +403,18 @@ with st.sidebar:
         if model:
             os.environ['LOCAL_LLM_MODEL'] = model
     
+    # Context Size limit (General Setting)
+    st.divider()
+    max_context = st.number_input(
+        "Max Context Chars (Diff Limit)",
+        min_value=1000,
+        max_value=128000,
+        value=int(os.getenv('LLM_MAX_CONTEXT_CHARS', '12000')),
+        step=1000,
+        help="Limit input size (diff) to avoid context overflow. ~4 chars = 1 token. Decrease if getting 400 errors."
+    )
+    os.environ['LLM_MAX_CONTEXT_CHARS'] = str(max_context)
+    
     # Current configuration display
     st.divider()
     st.subheader("📊 Current Config")
@@ -410,7 +422,8 @@ with st.sidebar:
     st.json({
         "provider": config_display["provider"],
         "temperature": config_display["temperature"],
-        "max_tokens": config_display["max_tokens"]
+        "max_tokens": config_display["max_tokens"],
+        "max_context_chars": config_display.get("max_context_chars", 12000)
     })
 
 # Main content
