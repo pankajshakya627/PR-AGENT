@@ -30,7 +30,7 @@ graph TD
     end
 
     subgraph "LLM Providers"
-        LLM[🤖 LLM (OpenAI/Anthropic/Groq/OpenRouter)]
+        LLM["🤖 LLM (OpenAI/Anthropic/Groq/OpenRouter)"]
     end
 
     User --> UI
@@ -53,7 +53,7 @@ graph TD
 
 ## Architecture
 
-![Architecture](docs/diagram.svg)
+![Architecture](docs/architecture.png)
 
 ## 📂 Directory Structure
 
