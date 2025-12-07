@@ -51,9 +51,6 @@ graph TD
     style LLM fill:#faa,stroke:#333
 ```
 
-## Architecture
-
-![Architecture](docs/architecture.png)
 
 ## 📂 Directory Structure
 
