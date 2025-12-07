@@ -91,12 +91,8 @@ class CodeReviewAgent(BaseLLMAgent):
             chain = prompt | self.llm
             response = await chain.ainvoke({"diff": diff[:20000]})
             
-            review_data = from_toon(response.content)
-            
-            if not isinstance(review_data, dict):
-                 review_data = {"raw": response.content}
-
-            return {"code_review": review_data}
+            # Return raw markdown directly - prompts output markdown now
+            return {"code_review": response.content}
 
         except Exception as e:
             return {"code_review": {"error": str(e)}}
@@ -120,12 +116,8 @@ class PRDescriptionAgent(BaseLLMAgent):
             chain = prompt | self.llm
             response = await chain.ainvoke({"diff": diff[:20000]})
             
-            data = from_toon(response.content)
-            
-            if not isinstance(data, dict):
-                 data = {"raw": response.content}
-                
-            return {"pr_description": data}
+            # Return raw markdown directly
+            return {"pr_description": response.content}
         except Exception as e:
             return {"pr_description": {"error": str(e)}}
 
@@ -148,12 +140,8 @@ class CodeImprovementAgent(BaseLLMAgent):
             chain = prompt | self.llm
             response = await chain.ainvoke({"diff": diff[:20000]})
             
-            data = from_toon(response.content)
-            
-            if not isinstance(data, dict):
-                 data = {"raw": response.content}
-                
-            return {"code_improvements": data}
+            # Return raw markdown directly
+            return {"code_improvements": response.content}
         except Exception as e:
             return {"code_improvements": {"error": str(e)}}
 
@@ -200,15 +188,7 @@ class ChangelogAgent(BaseLLMAgent):
             chain = prompt | self.llm
             response = await chain.ainvoke({"diff": diff[:20000]})
             
-            data = from_toon(response.content)
-            
-            if isinstance(data, dict) and "entries" in data:
-                # Format nicely for the user
-                entries = data["entries"] or []
-                if isinstance(entries, list):
-                    text = "\n".join([f"- {e.get('type')}: {e.get('description')}" for e in entries])
-                    return {"changelog_entry": text}
-            
+            # Return raw markdown directly
             return {"changelog_entry": response.content}
         except Exception as e:
             return {"changelog_entry": f"Error: {str(e)}"}
