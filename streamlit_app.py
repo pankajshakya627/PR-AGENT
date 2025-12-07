@@ -2,10 +2,13 @@
 Streamlit UI for PR-Agent MCP Server
 
 A web interface to interact with the PR-Agent FastMCP server.
-Allows users to select LLM providers and execute tools interactively.
+Features secure login/registration with streamlit-authenticator.
 """
 
 import streamlit as st
+import streamlit_authenticator as stauth
+import yaml
+from yaml.loader import SafeLoader
 import asyncio
 import os
 import sys
@@ -16,15 +19,47 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from src.config import get_llm_config, get_agent_config
-from src.agents.specialized import (
-    CodeReviewAgent, PRDescriptionAgent, CodeImprovementAgent,
-    PRQuestionsAgent, ChangelogAgent
-)
-from src.auth import (
-    create_user, authenticate_user, validate_email, 
-    validate_password, validate_username, email_exists, username_exists
-)
+# Config file path
+CONFIG_FILE = project_root / "config" / "auth_config.yaml"
+
+
+def load_config():
+    """Load authentication config from YAML file."""
+    if not CONFIG_FILE.exists():
+        # Create default config
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        default_config = {
+            'credentials': {
+                'usernames': {
+                    'admin': {
+                        'email': 'admin@pragent.com',
+                        'name': 'Administrator',
+                        'password': stauth.Hasher(['admin123']).generate()[0]
+                    }
+                }
+            },
+            'cookie': {
+                'expiry_days': 30,
+                'key': 'pr_agent_auth_secret_key',
+                'name': 'pr_agent_auth'
+            },
+            'pre-authorized': {
+                'emails': ['admin@pragent.com']
+            }
+        }
+        with open(CONFIG_FILE, 'w') as f:
+            yaml.dump(default_config, f)
+        return default_config
+    
+    with open(CONFIG_FILE) as f:
+        return yaml.load(f, Loader=SafeLoader)
+
+
+def save_config(config):
+    """Save authentication config to YAML file."""
+    with open(CONFIG_FILE, 'w') as f:
+        yaml.dump(config, f, default_flow_style=False)
+
 
 # Page configuration
 st.set_page_config(
@@ -34,162 +69,243 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
+# Custom CSS for modern styling
 st.markdown("""
 <style>
-    .stAlert {
-        margin-top: 1rem;
-    }
-    .tool-card {
-        background-color: #f0f2f6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-    }
-    .result-box {
-        background-color: #1e1e1e;
-        color: #d4d4d4;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        font-family: 'Courier New', monospace;
-        white-space: pre-wrap;
-    }
+    /* Auth container styling */
     .auth-container {
-        max-width: 400px;
-        margin: 0 auto;
+        max-width: 450px;
+        margin: 2rem auto;
         padding: 2rem;
+        background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+        border-radius: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     }
+    
+    /* Header styling */
     .auth-header {
         text-align: center;
         margin-bottom: 2rem;
     }
+    
+    .auth-header h1 {
+        font-size: 2.5rem;
+        background: linear-gradient(120deg, #00d4ff, #7c3aed);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 0.5rem;
+    }
+    
+    .auth-header p {
+        color: #a0aec0;
+        font-size: 1rem;
+    }
+    
+    /* Tab styling */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+        justify-content: center;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        padding: 1rem 2rem;
+        font-weight: 600;
+    }
+    
+    /* Input styling */
+    .stTextInput > div > div > input {
+        background-color: #2d3748;
+        border: 1px solid #4a5568;
+        color: white;
+        border-radius: 10px;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        width: 100%;
+        background: linear-gradient(120deg, #7c3aed, #00d4ff);
+        color: white;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        border-radius: 10px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
+    }
+    
+    /* Alert styling */
+    .stAlert {
+        border-radius: 10px;
+    }
+    
+    /* Main app styling */
+    .tool-card {
+        background: linear-gradient(145deg, #1e1e2f 0%, #2d2d44 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        border: 1px solid #3d3d5c;
+        margin-bottom: 1rem;
+    }
+    
+    .result-box {
+        background-color: #1a1a2e;
+        color: #e2e8f0;
+        padding: 1.5rem;
+        border-radius: 15px;
+        font-family: 'Fira Code', 'Courier New', monospace;
+        white-space: pre-wrap;
+        border: 1px solid #2d3748;
+    }
+    
+    /* Sidebar user info */
+    .user-info {
+        background: linear-gradient(145deg, #2d2d44 0%, #1e1e2f 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        margin-bottom: 1rem;
+        text-align: center;
+    }
+    
+    .user-avatar {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# Load config
+config = load_config()
+
+# Initialize authenticator
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days'],
+    config.get('pre-authorized', {})
+)
+
+
+def show_auth_page():
+    """Display authentication page with login and register tabs."""
+    # Centered container
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        # Header
+        st.markdown("""
+        <div class="auth-header">
+            <h1>🤖 PR-Agent</h1>
+            <p>Intelligent Pull Request Analysis</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Tabs for Login and Register
+        tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+        
+        with tab1:
+            # Login form
+            try:
+                authenticator.login(location='main', key='login')
+            except Exception as e:
+                st.error(f"Login error: {e}")
+            
+            if st.session_state.get("authentication_status") == False:
+                st.error("❌ Invalid username or password")
+            elif st.session_state.get("authentication_status") is None:
+                st.info("👆 Enter your credentials to continue")
+        
+        with tab2:
+            # Registration form
+            st.markdown("### Create Account")
+            
+            with st.form("register_form", clear_on_submit=True):
+                new_email = st.text_input("📧 Email", placeholder="your.email@example.com")
+                new_username = st.text_input("👤 Username", placeholder="Choose a username")
+                new_name = st.text_input("📝 Full Name", placeholder="Your full name")
+                new_password = st.text_input("🔒 Password", type="password", placeholder="Min 8 characters")
+                new_password_repeat = st.text_input("🔒 Confirm Password", type="password", placeholder="Repeat password")
+                
+                register_btn = st.form_submit_button("Create Account", use_container_width=True)
+                
+                if register_btn:
+                    # Validation
+                    errors = []
+                    
+                    if not new_email or '@' not in new_email:
+                        errors.append("Valid email is required")
+                    
+                    if not new_username or len(new_username) < 3:
+                        errors.append("Username must be at least 3 characters")
+                    
+                    if new_username in config['credentials']['usernames']:
+                        errors.append("Username already exists")
+                    
+                    for user_data in config['credentials']['usernames'].values():
+                        if user_data.get('email', '').lower() == new_email.lower():
+                            errors.append("Email already registered")
+                            break
+                    
+                    if len(new_password) < 8:
+                        errors.append("Password must be at least 8 characters")
+                    
+                    if new_password != new_password_repeat:
+                        errors.append("Passwords do not match")
+                    
+                    if errors:
+                        for error in errors:
+                            st.error(f"❌ {error}")
+                    else:
+                        # Hash password and save user
+                        hashed_pw = stauth.Hasher([new_password]).generate()[0]
+                        config['credentials']['usernames'][new_username] = {
+                            'email': new_email,
+                            'name': new_name,
+                            'password': hashed_pw
+                        }
+                        save_config(config)
+                        st.success("✅ Account created successfully! Please login.")
+                        st.balloons()
+
+
+# ============== AUTHENTICATION CHECK ==============
+if st.session_state.get("authentication_status") != True:
+    show_auth_page()
+    st.stop()
+
+# ============== MAIN APP (after authentication) ==============
+
+# Import after auth check to avoid loading issues
+from src.config import get_llm_config, get_agent_config
+from src.agents.specialized import (
+    CodeReviewAgent, PRDescriptionAgent, CodeImprovementAgent,
+    PRQuestionsAgent, ChangelogAgent
+)
 
 # Initialize session state
 if 'provider' not in st.session_state:
     st.session_state.provider = 'openai'
 if 'results' not in st.session_state:
     st.session_state.results = {}
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'user' not in st.session_state:
-    st.session_state.user = None
-if 'auth_page' not in st.session_state:
-    st.session_state.auth_page = 'login'
 
-
-def show_login_page():
-    """Display login form."""
-    st.markdown("<div class='auth-header'><h1>🤖 PR-Agent</h1><p>Sign in to continue</p></div>", unsafe_allow_html=True)
-    
-    with st.form("login_form"):
-        username_or_email = st.text_input("Username or Email", placeholder="Enter username or email")
-        password = st.text_input("Password", type="password", placeholder="Enter password")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            submit = st.form_submit_button("Sign In", use_container_width=True, type="primary")
-        with col2:
-            if st.form_submit_button("Create Account", use_container_width=True):
-                st.session_state.auth_page = 'register'
-                st.rerun()
-        
-        if submit:
-            if not username_or_email or not password:
-                st.error("Please fill in all fields")
-            else:
-                success, user, message = authenticate_user(username_or_email, password)
-                if success:
-                    st.session_state.authenticated = True
-                    st.session_state.user = user
-                    st.success(message)
-                    st.rerun()
-                else:
-                    st.error(message)
-
-
-def show_registration_page():
-    """Display registration form with validation."""
-    st.markdown("<div class='auth-header'><h1>🤖 PR-Agent</h1><p>Create your account</p></div>", unsafe_allow_html=True)
-    
-    with st.form("register_form"):
-        username = st.text_input("Username", placeholder="Choose a username (3-20 characters)")
-        email = st.text_input("Email", placeholder="Enter your email")
-        password = st.text_input("Password", type="password", placeholder="Min 8 chars, 1 uppercase, 1 number")
-        confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            submit = st.form_submit_button("Create Account", use_container_width=True, type="primary")
-        with col2:
-            if st.form_submit_button("Back to Login", use_container_width=True):
-                st.session_state.auth_page = 'login'
-                st.rerun()
-        
-        if submit:
-            # Validate all fields
-            errors = []
-            
-            # Check username
-            valid, msg = validate_username(username)
-            if not valid:
-                errors.append(msg)
-            elif username_exists(username):
-                errors.append("Username already exists")
-            
-            # Check email
-            valid, msg = validate_email(email)
-            if not valid:
-                errors.append(msg)
-            elif email_exists(email):
-                errors.append("Email already registered")
-            
-            # Check password
-            valid, msg = validate_password(password)
-            if not valid:
-                errors.append(msg)
-            
-            # Check password match
-            if password != confirm_password:
-                errors.append("Passwords do not match")
-            
-            if errors:
-                for error in errors:
-                    st.error(error)
-            else:
-                success, message = create_user(username, email, password)
-                if success:
-                    st.success(message + " Please sign in.")
-                    st.session_state.auth_page = 'login'
-                    st.rerun()
-                else:
-                    st.error(message)
-
-
-def logout():
-    """Log out the current user."""
-    st.session_state.authenticated = False
-    st.session_state.user = None
-    st.rerun()
-
-
-# ============== AUTHENTICATION CHECK ==============
-if not st.session_state.authenticated:
-    if st.session_state.auth_page == 'login':
-        show_login_page()
-    else:
-        show_registration_page()
-    st.stop()  # Stop execution here if not authenticated
-
-# ============== MAIN APP (after authentication) ==============
-
-# Sidebar - Configuration
+# Sidebar - User Info and Configuration
 with st.sidebar:
-    # User info and logout
-    st.markdown(f"👤 **{st.session_state.user['username']}**")
-    if st.button("🚪 Logout", use_container_width=True):
-        logout()
+    # User info section
+    st.markdown(f"""
+    <div class="user-info">
+        <div class="user-avatar">👤</div>
+        <strong>{st.session_state.get('name', 'User')}</strong>
+        <br>
+        <small style="color: #a0aec0;">@{st.session_state.get('username', '')}</small>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Logout button
+    authenticator.logout('🚪 Logout', 'sidebar', key='logout')
     
     st.divider()
     
@@ -199,7 +315,7 @@ with st.sidebar:
     st.subheader("LLM Provider")
     provider = st.selectbox(
         "Select Provider",
-        options=['openai', 'anthropic', 'openrouter', 'local'],
+        options=['groq', 'openrouter', 'openai', 'anthropic', 'local'],
         index=0,
         help="Choose your LLM provider"
     )
@@ -212,7 +328,24 @@ with st.sidebar:
     # Provider-specific configuration
     st.subheader("API Configuration")
     
-    if provider == 'openai':
+    if provider == 'groq':
+        api_key = st.text_input(
+            "Groq API Key",
+            value=os.getenv('GROQ_API_KEY', ''),
+            type="password",
+            help="Your Groq API key (free at console.groq.com)"
+        )
+        if api_key:
+            os.environ['GROQ_API_KEY'] = api_key
+            
+        model = st.selectbox(
+            "Model",
+            options=['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768'],
+            help="Groq model to use"
+        )
+        os.environ['GROQ_MODEL'] = model
+    
+    elif provider == 'openai':
         api_key = st.text_input(
             "OpenAI API Key",
             value=os.getenv('OPENAI_API_KEY', ''),
@@ -258,297 +391,127 @@ with st.sidebar:
         if api_key:
             os.environ['OPENROUTER_API_KEY'] = api_key
             
-        model = st.text_input(
+        model = st.selectbox(
             "Model",
-            value=os.getenv('OPENROUTER_MODEL', 'x-ai/grok-beta'),
-            help="OpenRouter model to use (e.g., x-ai/grok-beta, meta-llama/llama-3.1-8b-instruct:free)"
+            options=[
+                'amazon/nova-2-lite-v1:free',
+                'google/gemini-2.0-flash-exp:free',
+                'x-ai/grok-beta'
+            ],
+            help="OpenRouter model to use"
         )
-        if model:
-            os.environ['OPENROUTER_MODEL'] = model
+        os.environ['OPENROUTER_MODEL'] = model
             
     elif provider == 'local':
         base_url = st.text_input(
             "Base URL",
-            value=os.getenv('LOCAL_LLM_BASE_URL', 'http://localhost:12434/engines/llama.cpp/v1'),
-            help="Your local LLM endpoint"
+            value=os.getenv('LOCAL_LLM_BASE_URL', 'http://localhost:1234/v1'),
+            help="LM Studio or Ollama base URL"
         )
         if base_url:
             os.environ['LOCAL_LLM_BASE_URL'] = base_url
             
         model = st.text_input(
-            "Model",
-            value=os.getenv('LOCAL_LLM_MODEL', 'ai/llama3.2:latest'),
-            help="Local model name"
+            "Model Name",
+            value=os.getenv('LOCAL_LLM_MODEL', 'local-model'),
+            help="Model identifier"
         )
         if model:
             os.environ['LOCAL_LLM_MODEL'] = model
     
-    # Advanced settings
-    with st.expander("Advanced Settings"):
-        temperature = st.slider(
-            "Temperature",
-            min_value=0.0,
-            max_value=1.0,
-            value=float(os.getenv('LLM_TEMPERATURE', '0.7')),
-            step=0.1,
-            help="Higher = more creative, Lower = more deterministic"
-        )
-        os.environ['LLM_TEMPERATURE'] = str(temperature)
-        
-        max_tokens = st.number_input(
-            "Max Tokens",
-            min_value=100,
-            max_value=128000,
-            value=int(os.getenv('LLM_MAX_TOKENS', '8000')),
-            step=100,
-            help="Maximum tokens in response"
-        )
-        os.environ['LLM_MAX_TOKENS'] = str(max_tokens)
-    
-    # Display current config
+    # Current configuration display
     st.divider()
-    config = get_llm_config()
-    st.caption(f"🤖 Active Provider: **{config['provider']}**")
-    st.caption(f"🌡️ Temperature: {config['temperature']}")
-    st.caption(f"📊 Max Tokens: {config['max_tokens']}")
+    st.subheader("📊 Current Config")
+    config_display = get_llm_config()
+    st.json({
+        "provider": config_display["provider"],
+        "temperature": config_display["temperature"],
+        "max_tokens": config_display["max_tokens"]
+    })
 
 # Main content
 st.title("🤖 PR-Agent Interactive UI")
-st.markdown("Select a tool below and provide the required inputs to analyze pull requests.")
+st.markdown("*Analyze Pull Requests with AI-powered insights*")
 
 # Tool selection
+st.subheader("🛠️ Select Analysis Tool")
+
 tool_options = {
-    "Code Review": {
-        "agent": CodeReviewAgent,
-        "description": "Perform comprehensive code review on a PR",
-        "inputs": ["pr_url"],
-        "icon": "🔍"
-    },
-    "PR Description": {
-        "agent": PRDescriptionAgent,
-        "description": "Generate detailed PR description with title, summary, and walkthrough",
-        "inputs": ["pr_url"],
-        "icon": "📝"
-    },
-    "Code Improvement": {
-        "agent": CodeImprovementAgent,
-        "description": "Suggest code optimizations and refactoring opportunities",
-        "inputs": ["pr_url"],
-        "icon": "⚡"
-    },
-    "PR Questions": {
-        "agent": PRQuestionsAgent,
-        "description": "Ask specific questions about the PR content",
-        "inputs": ["pr_url", "question"],
-        "icon": "❓"
-    },
-    "Changelog": {
-        "agent": ChangelogAgent,
-        "description": "Generate changelog entry for the PR",
-        "inputs": ["pr_url"],
-        "icon": "📋"
-    },
+    "📋 Code Review": "Comprehensive code review with issues and suggestions",
+    "📝 PR Description": "Generate PR title and description",
+    "💡 Code Improvement": "Suggest code improvements and refactoring",
+    "❓ PR Questions": "Answer questions about the PR",
+    "📜 Changelog": "Generate changelog entry"
 }
 
 selected_tool = st.selectbox(
-    "Select Tool",
+    "Choose a tool",
     options=list(tool_options.keys()),
-    format_func=lambda x: f"{tool_options[x]['icon']} {x}",
-    help="Choose which PR analysis tool to use"
+    format_func=lambda x: f"{x} - {tool_options[x]}"
 )
 
-tool_info = tool_options[selected_tool]
+# Input section
+st.subheader("📥 Input")
 
-# Display tool description
-st.info(f"**{tool_info['icon']} {selected_tool}**: {tool_info['description']}")
+pr_url = st.text_input(
+    "Pull Request URL",
+    placeholder="https://github.com/owner/repo/pull/123",
+    help="Enter the full GitHub PR URL"
+)
 
-# Input form
-with st.form(key='tool_form'):
-    inputs = {}
-    
-    # PR URL input (required for all tools)
-    pr_url = st.text_input(
-        "PR URL *",
-        placeholder="https://github.com/owner/repo/pull/123",
-        help="Enter the GitHub pull request URL"
+# Additional inputs based on tool
+additional_input = None
+if "Questions" in selected_tool:
+    additional_input = st.text_area(
+        "Your Question",
+        placeholder="What does this PR change?",
+        help="Enter your question about the PR"
     )
-    inputs['pr_url'] = pr_url
-    
-    # Optional GitHub token
-    github_token = st.text_input(
-        "GitHub Token (optional)",
-        type="password",
-        help="Only needed for private repositories",
-        value=os.getenv('GITHUB_TOKEN', '')
-    )
-    inputs['github_token'] = github_token if github_token else None
-    
-    # Additional inputs for specific tools
-    if 'question' in tool_info['inputs']:
-        question = st.text_area(
-            "Question *",
-            placeholder="What are the main changes in this PR?",
-            help="Enter your question about the PR"
-        )
-        inputs['question'] = question
-    
-    # Submit button
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        submit = st.form_submit_button("🚀 Run Analysis", use_container_width=True)
-    with col2:
-        if submit and not pr_url:
-            st.error("PR URL is required!")
 
-# Execute tool
-if submit and pr_url:
-    with st.spinner(f'Running {selected_tool}...'):
-        try:
-            # Create agent instance
-            agent_class = tool_info['agent']
-            agent = agent_class()
-            
-            # Prepare state
-            state = {
-                "pr_requirements": "",
-                "pr_url": pr_url,
-                "github_token": github_token,
-                "agent_results": {},
-                "execution_mode": "sequential",
-                "task_graph": {},
-                "final_pr": None,
-                "errors": []
-            }
-            
-            # Add question if needed
-            if 'question' in inputs and inputs['question']:
-                state['question'] = inputs['question']
-            
-            # Run async execution
-            async def run_agent():
-                return await agent.execute(state)
-            
-            result = asyncio.run(run_agent())
-            
-            # Display results
-            st.success(f"✅ {selected_tool} completed successfully!")
-            
-            # Format and display results
-            st.subheader("📊 Results")
-            
-            # Helper function to intelligently display content
-            def display_formatted_content(content, title=None):
-                """Intelligently format and display content based on its type."""
+# Run analysis button
+if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
+    if not pr_url:
+        st.error("Please enter a PR URL")
+    else:
+        with st.spinner("🔄 Analyzing PR..."):
+            try:
+                # Create agent based on selection
+                if "Code Review" in selected_tool:
+                    agent = CodeReviewAgent()
+                elif "PR Description" in selected_tool:
+                    agent = PRDescriptionAgent()
+                elif "Code Improvement" in selected_tool:
+                    agent = CodeImprovementAgent()
+                elif "Questions" in selected_tool:
+                    agent = PRQuestionsAgent()
+                elif "Changelog" in selected_tool:
+                    agent = ChangelogAgent()
                 
-                if title:
-                    st.markdown(f"**{title}**")
+                # Prepare state
+                state = {"pr_url": pr_url}
+                if additional_input:
+                    state["question"] = additional_input
                 
-                # Handle different content types
-                if isinstance(content, dict):
-                    # Check if it's a structured result with multiple fields
-                    for key, value in content.items():
-                        st.markdown(f"### {key.replace('_', ' ').title()}")
-                        if isinstance(value, str):
-                            # Render markdown directly
-                            st.markdown(value)
-                        elif isinstance(value, (list, dict)):
-                            with st.expander(f"📋 View Details"):
-                                st.json(value)
-                        else:
-                            st.write(value)
-                        st.divider()
-                            
-                elif isinstance(content, str):
-                    # Render markdown directly - LLM now outputs proper markdown
-                    st.markdown(content)
-                    
-                elif isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, str):
-                            st.markdown(f"- {item}")
-                        else:
-                            st.json(item)
-                    
-                else:
-                    st.write(content)
-            
-            # Find the result key (varies by agent)
-            result_keys = list(result.keys())
-            if result_keys:
-                main_result = result[result_keys[0]]
+                # Run analysis
+                result = asyncio.run(agent.run(state))
                 
-                # Display with intelligent formatting
-                display_formatted_content(main_result)
-                
-                # Add download button for results
-                st.divider()
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    # Download as JSON
-                    import json
-                    json_str = json.dumps(result, indent=2)
-                    st.download_button(
-                        label="📥 Download as JSON",
-                        data=json_str,
-                        file_name=f"{selected_tool.lower().replace(' ', '_')}_result.json",
-                        mime="application/json"
-                    )
-                
-                with col2:
-                    # Download as Markdown
-                    if isinstance(main_result, str):
-                        md_data = main_result
-                    else:
-                        md_data = json.dumps(main_result, indent=2)
-                    
-                    st.download_button(
-                        label="📄 Download as Markdown",
-                        data=md_data,
-                        file_name=f"{selected_tool.lower().replace(' ', '_')}_result.md",
-                        mime="text/markdown"
-                    )
-                
-                # Store in session state
+                # Store and display result
                 st.session_state.results[selected_tool] = result
-            else:
-                st.warning("No results returned from agent")
                 
-        except Exception as e:
-            st.error(f"❌ Error: {str(e)}")
-            with st.expander("Show error details"):
-                st.exception(e)
+                st.success("✅ Analysis complete!")
+                
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
 
-# Show previous results
+# Display results
 if st.session_state.results:
-    st.divider()
-    st.subheader("📚 Previous Results")
+    st.subheader("📊 Results")
     
-    for tool_name, result in st.session_state.results.items():
-        with st.expander(f"{tool_options[tool_name]['icon']} {tool_name}"):
-            # Display with same formatting
-            result_keys = list(result.keys())
-            if result_keys:
-                main_result = result[result_keys[0]]
-                
-                # Use tabs for better organization
-                if isinstance(main_result, dict):
-                    tabs = st.tabs(list(main_result.keys()))
-                    for i, (key, value) in enumerate(main_result.items()):
-                        with tabs[i]:
-                            if isinstance(value, str):
-                                st.markdown(value)
-                            else:
-                                st.json(value)
-                else:
-                    st.write(main_result)
-
-# Footer
-st.divider()
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.caption("🔧 Built with Streamlit")
-with col2:
-    st.caption("🤖 Powered by PR-Agent")
-with col3:
-    st.caption("📡 FastMCP Integration")
+    for tool, result in st.session_state.results.items():
+        with st.expander(f"Results: {tool}", expanded=True):
+            if isinstance(result, dict):
+                # Check for markdown content
+                content = result.get('content') or result.get('review') or result.get('description') or str(result)
+                st.markdown(content)
+            else:
+                st.markdown(str(result))
