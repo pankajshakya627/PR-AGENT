@@ -48,15 +48,15 @@ PRs will be automatically reviewed when opened or updated.
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  GitHub Actions Runner                                       │
+│  GitHub Actions Runner                                      │
 │  1. Clones pankajshakya627/PR-AGENT                         │
-│  2. Installs dependencies                                    │
-│  3. Runs PR analysis                                         │
+│  2. Installs dependencies                                   │
+│  3. Runs PR analysis                                        │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  PR Comment Posted with Review Results                       │
+│  PR Comment Posted with Review Results                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
