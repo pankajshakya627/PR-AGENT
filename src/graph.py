@@ -38,22 +38,32 @@ def topological_sort(task_graph: Dict[str, List[str]]) -> List[List[str]]:
     
     Returns a list of lists, where each inner list contains tasks that can
     be executed in parallel (have no dependencies on each other).
+    
+    Raises:
+        ValueError: If cyclic dependencies are detected.
     """
-    # Calculate in-degrees
-    in_degree = {task: 0 for task in task_graph}
+    from collections import defaultdict
+    
+    # Calculate in-degrees using defaultdict for better readability
+    in_degree = defaultdict(int)
+    for task in task_graph:
+        in_degree[task] = 0  # Initialize all tasks
+    
     for task, deps in task_graph.items():
         for dep in deps:
-            if dep in in_degree:
+            if dep in task_graph:
                 in_degree[dep] += 1
     
     # Find tasks with no dependencies (in-degree = 0)
     queue = deque([task for task, degree in in_degree.items() if degree == 0])
     levels = []
+    processed_count = 0
     
     while queue:
         # All tasks in current level can execute in parallel
         current_level = list(queue)
         levels.append(current_level)
+        processed_count += len(current_level)
         queue.clear()
         
         # Process current level
@@ -64,6 +74,11 @@ def topological_sort(task_graph: Dict[str, List[str]]) -> List[List[str]]:
                     in_degree[next_task] -= 1
                     if in_degree[next_task] == 0:
                         queue.append(next_task)
+    
+    # Cycle detection: if we haven't processed all tasks, there's a cycle
+    if processed_count < len(task_graph):
+        unprocessed = [t for t in task_graph if t not in [task for level in levels for task in level]]
+        raise ValueError(f"Cyclic dependencies detected in task graph. Affected tasks: {unprocessed}")
     
     return levels
 

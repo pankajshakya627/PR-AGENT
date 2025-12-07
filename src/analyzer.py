@@ -29,16 +29,35 @@ class TaskDependencyAnalyzer:
                 )
             except ImportError:
                 raise ImportError("langchain-anthropic is not installed. Please install it or use OpenAI.")
+        elif self.provider == "openrouter":
+            try:
+                from langchain_openai import ChatOpenAI
+                self.llm = ChatOpenAI(
+                    model=config["openrouter_model"],
+                    base_url=config["openrouter_base_url"],
+                    api_key=os.getenv("OPENROUTER_API_KEY"),
+                    temperature=config["temperature"],
+                    max_tokens=config["max_tokens"]
+                )
+            except ImportError:
+                raise ImportError("langchain-openai is not installed. Please install it with: pip install langchain-openai")
+            except Exception as e:
+                raise ConnectionError(f"Failed to connect to OpenRouter: {e}")
         elif self.provider == "local":
-            from langchain_openai import ChatOpenAI
-            self.llm = ChatOpenAI(
-                model=config["local_model"],
-                base_url=config["local_base_url"],
-                api_key="not-required",
-                temperature=0.1,
-                streaming=True,
-                max_tokens=config["max_tokens"]
-            )
+            try:
+                from langchain_openai import ChatOpenAI
+                self.llm = ChatOpenAI(
+                    model=config["local_model"],
+                    base_url=config["local_base_url"],
+                    api_key="not-required",
+                    temperature=0.1,
+                    streaming=True,
+                    max_tokens=config["max_tokens"]
+                )
+            except ImportError:
+                raise ImportError("langchain-openai is not installed. Please install it with: pip install langchain-openai")
+            except Exception as e:
+                raise ConnectionError(f"Failed to connect to local LLM at {config['local_base_url']}: {e}")
         else:
             raise ValueError(f"Unsupported LLM provider: {self.provider}")
 

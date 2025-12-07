@@ -6,6 +6,7 @@ from src.config import get_llm_config
 from src.toon_io import to_toon, from_toon
 from langchain_core.prompts import ChatPromptTemplate
 import json
+import os
 from src.prompts import (
     CODE_REVIEW_SYSTEM_PROMPT, CODE_REVIEW_USER_PROMPT,
     PR_DESCRIPTION_SYSTEM_PROMPT, PR_DESCRIPTION_USER_PROMPT,
@@ -23,6 +24,7 @@ class BaseLLMAgent(BaseAgent):
             from langchain_openai import ChatOpenAI
             self.llm = ChatOpenAI(
                 model=config["openai_model"],
+                api_key=os.getenv("OPENAI_API_KEY"),
                 temperature=0.2,
                 max_tokens=config["max_tokens"]
             )
@@ -30,7 +32,17 @@ class BaseLLMAgent(BaseAgent):
             from langchain_anthropic import ChatAnthropic
             self.llm = ChatAnthropic(
                 model=config["anthropic_model"],
+                api_key=os.getenv("ANTHROPIC_API_KEY"),
                 temperature=0.2,
+                max_tokens=config["max_tokens"]
+            )
+        elif self.provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            self.llm = ChatOpenAI(
+                model=config["openrouter_model"],
+                base_url=config["openrouter_base_url"],
+                api_key=os.getenv("OPENROUTER_API_KEY"),
+                temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
         elif self.provider == "local":
