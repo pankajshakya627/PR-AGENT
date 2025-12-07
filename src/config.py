@@ -8,16 +8,16 @@ from typing import Dict, Any, Literal
 # Set via environment variable LLM_PROVIDER (default: openrouter)
 
 LLM_CONFIG = {
-    "provider": os.getenv("LLM_PROVIDER", "openrouter"),  # Default to openrouter
+    "provider": os.getenv("LLM_PROVIDER", "groq"),  # Default to groq
     
     # OpenAI Configuration
-    "openai_model": os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+    "openai_model": os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
     
     # Anthropic Configuration  
-    "anthropic_model": os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20240620"),
+    "anthropic_model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929"),
     
     # OpenRouter Configuration (for models like Grok, Llama, etc.)
-    "openrouter_model": os.getenv("OPENROUTER_MODEL", "x-ai/grok-beta"),
+    "openrouter_model": os.getenv("OPENROUTER_MODEL", "amazon/nova-2-lite-v1:free"),
     "openrouter_base_url": "https://openrouter.ai/api/v1",
     
     # Groq Configuration (for fast Llama, Mixtral models)

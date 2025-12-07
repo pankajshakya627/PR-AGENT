@@ -25,17 +25,34 @@ on:
       provider:
         description: 'LLM Provider'
         required: false
-        default: 'openrouter'
+        default: 'groq'
         type: choice
         options:
-          - openrouter
           - groq
+          - openrouter
           - openai
           - anthropic
       model:
-        description: 'Model name (e.g., llama-3.1-8b-instant, x-ai/grok-beta)'
+        description: 'Model name (pick based on provider)'
         required: false
-        type: string
+        default: 'llama-3.1-8b-instant'
+        type: choice
+        options:
+          # Groq models
+          - llama-3.1-8b-instant
+          - llama-3.3-70b-versatile
+          - mixtral-8x7b-32768
+          # OpenRouter models  
+          - amazon/nova-2-lite-v1:free
+          - x-ai/grok-beta
+          - google/gemini-2.0-flash-exp:free
+          # OpenAI models
+          - gpt-4.1-mini
+          - gpt-4o
+          - gpt-4o-mini
+          # Anthropic models
+          - claude-sonnet-4-5-20250929
+          - claude-3-5-sonnet-20240620
 
 permissions:
   contents: read
