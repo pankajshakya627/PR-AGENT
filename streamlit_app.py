@@ -7,6 +7,7 @@ Features secure login/registration with streamlit-authenticator.
 
 import streamlit as st
 import streamlit_authenticator as stauth
+import bcrypt
 import yaml
 from yaml.loader import SafeLoader
 import asyncio
@@ -34,7 +35,7 @@ def load_config():
                     'admin': {
                         'email': 'admin@pragent.com',
                         'name': 'Administrator',
-                        'password': stauth.Hasher(['admin123']).generate()[0]
+                        'password': bcrypt.hashpw('admin123'.encode(), bcrypt.gensalt()).decode()
                     }
                 }
             },
@@ -69,20 +70,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for modern styling
+# Custom CSS for modern styling (theme-aware)
 st.markdown("""
 <style>
-    /* Auth container styling */
-    .auth-container {
-        max-width: 450px;
-        margin: 2rem auto;
-        padding: 2rem;
-        background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
-        border-radius: 20px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    }
-    
-    /* Header styling */
+    /* Auth header styling */
     .auth-header {
         text-align: center;
         margin-bottom: 2rem;
@@ -97,7 +88,7 @@ st.markdown("""
     }
     
     .auth-header p {
-        color: #a0aec0;
+        opacity: 0.7;
         font-size: 1rem;
     }
     
@@ -112,17 +103,13 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Input styling */
+    /* Input styling - theme aware */
     .stTextInput > div > div > input {
-        background-color: #2d3748;
-        border: 1px solid #4a5568;
-        color: white;
         border-radius: 10px;
     }
     
     /* Button styling */
-    .stButton > button {
-        width: 100%;
+    .stButton > button[kind="primary"] {
         background: linear-gradient(120deg, #7c3aed, #00d4ff);
         color: white;
         border: none;
@@ -132,7 +119,7 @@ st.markdown("""
         transition: all 0.3s ease;
     }
     
-    .stButton > button:hover {
+    .stButton > button[kind="primary"]:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);
     }
@@ -142,32 +129,29 @@ st.markdown("""
         border-radius: 10px;
     }
     
-    /* Main app styling */
+    /* Tool card styling */
     .tool-card {
-        background: linear-gradient(145deg, #1e1e2f 0%, #2d2d44 100%);
         padding: 1.5rem;
         border-radius: 15px;
-        border: 1px solid #3d3d5c;
+        border: 1px solid rgba(128, 128, 128, 0.2);
         margin-bottom: 1rem;
     }
     
     .result-box {
-        background-color: #1a1a2e;
-        color: #e2e8f0;
         padding: 1.5rem;
         border-radius: 15px;
         font-family: 'Fira Code', 'Courier New', monospace;
         white-space: pre-wrap;
-        border: 1px solid #2d3748;
+        border: 1px solid rgba(128, 128, 128, 0.2);
     }
     
     /* Sidebar user info */
     .user-info {
-        background: linear-gradient(145deg, #2d2d44 0%, #1e1e2f 100%);
         padding: 1rem;
         border-radius: 10px;
         margin-bottom: 1rem;
         text-align: center;
+        border: 1px solid rgba(128, 128, 128, 0.2);
     }
     
     .user-avatar {
@@ -260,7 +244,7 @@ def show_auth_page():
                             st.error(f"❌ {error}")
                     else:
                         # Hash password and save user
-                        hashed_pw = stauth.Hasher([new_password]).generate()[0]
+                        hashed_pw = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
                         config['credentials']['usernames'][new_username] = {
                             'email': new_email,
                             'name': new_name,
