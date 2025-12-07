@@ -1,4 +1,4 @@
-name: PR-Agent Review
+name: PR-Agent Review PORTABLE
 
 # This is a PORTABLE workflow - just copy this file to any repo!
 # Required: Add GROQ_API_KEY (or other LLM key) to repository secrets

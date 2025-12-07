@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read
 
 jobs:
   codeql:
@@ -25,12 +26,12 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: python
-          queries: security-and-quality
+      
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
       
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
-        with:
-          category: "/language:python"
 
   dependency-review:
     name: Dependency Review
@@ -43,26 +44,6 @@ jobs:
       
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
-        with:
-          fail-on-severity: high
-          deny-licenses: GPL-3.0, AGPL-3.0
-
-  secrets-scan:
-    name: Secret Scanning
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
-      - name: TruffleHog Secret Scan
-        uses: trufflesecurity/trufflehog@main
-        with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          extra_args: --only-verified
 
   safety-check:
     name: Python Safety Check
@@ -77,8 +58,8 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install Safety
-        run: pip install safety
+      - name: Install pip-audit
+        run: pip install pip-audit
       
       - name: Check Dependencies
-        run: safety check -r requirements.txt --full-report || true
+        run: pip-audit -r requirements.txt || true

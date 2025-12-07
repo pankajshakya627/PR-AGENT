@@ -4,6 +4,17 @@
 
 PR-Agent is an intelligent system that uses LangGraph and LangChain to coordinate multiple specialized agents for comprehensive pull request analysis. The system analyzes task dependencies and orchestrates agents through parallel, sequential, or hybrid execution patterns based on requirements.
 
+## 📚 Documentation
+
+| Document                                       | Description                        |
+| ---------------------------------------------- | ---------------------------------- |
+| [Quick Start Guide](docs/QUICKSTART.md)        | Get started in 5 minutes           |
+| [CI/CD Setup](docs/CICD_SETUP.md)              | GitHub Actions integration         |
+| [Portable Workflow](docs/PORTABLE_WORKFLOW.md) | Use PR-Agent in any repo           |
+| [Streamlit UI](docs/STREAMLIT_FORMATTING.md)   | Web interface guide                |
+| [Security Policy](docs/SECURITY.md)            | Security & vulnerability reporting |
+| [License](LICENSE)                             | Usage terms                        |
+
 ---
 
 ## Terminal Usage Guide
@@ -42,17 +53,19 @@ cp .env.example .env  # Create if doesn't exist
 PR-Agent can automatically review all your PRs via GitHub Actions!
 
 **Quick Setup:**
+
 1. Add `OPENAI_API_KEY` to repository secrets
 2. Push the workflow (already included in `.github/workflows/`)
 3. Done! PR-Agent reviews every PR automatically
 
 **Features:**
+
 - ✅ Auto code review on every PR
 - ✅ Label-based control (`pr-agent:all`, `pr-agent:describe`, etc.)
 - ✅ Manual trigger from Actions tab
 - ✅ Comments posted directly on PR
 
-📖 **Full Setup Guide:** See [CICD_SETUP.md](CICD_SETUP.md)
+📖 **Full Setup Guide:** See [docs/CICD_SETUP.md](docs/CICD_SETUP.md)
 
 ---
 
@@ -83,12 +96,14 @@ uv run fastmcp dev main.py
 ```
 
 This will:
+
 - ✅ Start the MCP server
 - ✅ Open the MCP Inspector UI in your browser
 - ✅ Allow you to test tools interactively
 - ✅ View logs and debug issues
 
 **Expected Output:**
+
 ```
 🤖 Using LLM provider: local
 Starting MCP inspector...
@@ -109,6 +124,7 @@ Once the server is running, the following tools are available:
 #### Available MCP Prompts
 
 Access system prompts for each agent:
+
 - `code_review_prompt()`
 - `pr_description_prompt()`
 - `code_improvement_prompt()`
@@ -134,6 +150,7 @@ streamlit run streamlit_app.py
 ```
 
 **Features:**
+
 - ✅ **Provider Selection** - Switch between OpenAI, Anthropic, OpenRouter, Local LLM
 - ✅ **Interactive Forms** - Easy input for PR URLs and questions
 - ✅ **Live Results** - See analysis results in real-time
@@ -156,7 +173,7 @@ from src.graph import app
 
 async def review_pr(pr_url: str):
     """Review a pull request."""
-    
+
     # Initial state
     initial_state = {
         "pr_requirements": f"Review this PR: {pr_url}",
@@ -168,17 +185,17 @@ async def review_pr(pr_url: str):
         "errors": [],
         "final_pr": None
     }
-    
+
     # Configuration for state persistence
     config = {
         "configurable": {
             "thread_id": "pr-review-001"  # Unique ID for resumption
         }
     }
-    
+
     # Execute workflow
     result = await app.ainvoke(initial_state, config=config)
-    
+
     return result
 
 # Run it
@@ -196,7 +213,7 @@ from src.state import PRAgentState
 
 async def run_code_review(pr_url: str):
     """Run code review agent directly."""
-    
+
     state: PRAgentState = {
         "pr_requirements": "",
         "pr_url": pr_url,
@@ -207,10 +224,10 @@ async def run_code_review(pr_url: str):
         "final_pr": None,
         "errors": []
     }
-    
+
     agent = CodeReviewAgent()
     result = await agent.execute(state)
-    
+
     return result.get("code_review", {})
 ```
 
@@ -241,10 +258,10 @@ async def main(pr_url: str):
         "final_pr": None,
         "errors": []
     }
-    
+
     agent = CodeReviewAgent()
     result = await agent.execute(state)
-    
+
     review = result.get("code_review", {})
     print("\n=== Code Review Results ===\n")
     print(review)
@@ -253,11 +270,12 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python quick_review.py <PR_URL>")
         sys.exit(1)
-    
+
     asyncio.run(main(sys.argv[1]))
 ```
 
 Run it:
+
 ```bash
 python quick_review.py https://github.com/owner/repo/pull/123
 ```
@@ -275,7 +293,7 @@ from src.graph import app
 async def full_analysis():
     initial_state = {
         "pr_requirements": """
-        Analyze PR for security issues, generate description, 
+        Analyze PR for security issues, generate description,
         and create changelog entry:
         https://github.com/owner/repo/pull/123
         """,
@@ -287,10 +305,10 @@ async def full_analysis():
         "errors": [],
         "final_pr": None
     }
-    
+
     config = {"configurable": {"thread_id": "full-analysis-001"}}
     result = await app.ainvoke(initial_state, config=config)
-    
+
     # Access results
     print("Agent Results:", result["agent_results"])
     print("Errors:", result.get("errors", []))
@@ -307,13 +325,13 @@ from src.graph import app
 
 async def resume_workflow():
     """Resume a previously interrupted workflow."""
-    
+
     # Same thread_id as before
     config = {"configurable": {"thread_id": "full-analysis-001"}}
-    
+
     # Pass None to continue from last checkpoint
     result = await app.ainvoke(None, config=config)
-    
+
     return result
 
 asyncio.run(resume_workflow())
@@ -337,10 +355,10 @@ async def ask_question(pr_url: str, question: str):
         "final_pr": None,
         "errors": []
     }
-    
+
     agent = PRQuestionsAgent()
     result = await agent.execute(state)
-    
+
     print(f"\nQ: {question}")
     print(f"A: {result.get('answer', 'No answer')}\n")
 
@@ -397,11 +415,13 @@ pytest tests/ -v
 ### Troubleshooting
 
 #### "No module named 'langgraph'"
+
 ```bash
 pip install langgraph langchain langchain-openai langchain-anthropic
 ```
 
 #### "OPENAI_API_KEY not found"
+
 ```bash
 # Make sure .env file exists and is loaded
 echo "OPENAI_API_KEY=your_key" >> .env
@@ -409,12 +429,15 @@ source .env  # Or restart terminal
 ```
 
 #### "Import Error: cannot import FastMCP"
+
 ```bash
 pip install fastmcp
 ```
 
 #### Graph Import Fails (API Key Required)
+
 The analyzer initializes LLM on import. Ensure API keys are set:
+
 ```bash
 export OPENAI_API_KEY=your_key_here
 # Then run Python
@@ -430,7 +453,7 @@ export OPENAI_API_KEY=your_key_here
 # Force parallel execution only
 initial_state["execution_mode"] = "parallel"
 
-# Force sequential execution only  
+# Force sequential execution only
 initial_state["execution_mode"] = "sequential"
 
 # Hybrid (auto-determined, default)
@@ -498,32 +521,34 @@ minor,style,main.py,8,Missing docstring,Add module docstring
 ✅ **Dependency Management** - Topological sort for optimal execution  
 ✅ **Error Handling** - Retry logic with exponential backoff  
 ✅ **Observability** - Comprehensive logging throughout  
-✅ **TOON Format** - Token-efficient structured output  
+✅ **TOON Format** - Token-efficient structured output
 
 ---
 
 ## Features
 
--   **Specialized Agents**:
-    -   `CodeReviewAgent`: Analyzes diffs and reports issues (bugs, style, docs) in a structured table.
-    -   `PRDescriptionAgent`: Generates comprehensive PR titles, summaries, and walkthroughs.
-    -   `CodeImprovementAgent`: Suggests code optimizations and refactoring.
-    -   `PRQuestionsAgent`: Answers specific questions about the PR content.
-    -   `ChangelogAgent`: Generates concise changelog entries.
--   **TOON Integration**: Uses Token Oriented Object Notation for highly efficient, structured data exchange with LLMs, reducing token usage and improving parsing reliability.
--   **Local LLM Support**: Configurable to work with local LLMs (e.g., via LM Studio, Ollama) in addition to OpenAI and Anthropic.
--   **LangGraph Orchestration**: Manages complex agent workflows and state.
--   **FastMCP Server**: Exposes all capabilities as standard MCP tools for integration with IDEs (Cursor, VS Code) and AI assistants (Claude Desktop).
+- **Specialized Agents**:
+  - `CodeReviewAgent`: Analyzes diffs and reports issues (bugs, style, docs) in a structured table.
+  - `PRDescriptionAgent`: Generates comprehensive PR titles, summaries, and walkthroughs.
+  - `CodeImprovementAgent`: Suggests code optimizations and refactoring.
+  - `PRQuestionsAgent`: Answers specific questions about the PR content.
+  - `ChangelogAgent`: Generates concise changelog entries.
+- **TOON Integration**: Uses Token Oriented Object Notation for highly efficient, structured data exchange with LLMs, reducing token usage and improving parsing reliability.
+- **Local LLM Support**: Configurable to work with local LLMs (e.g., via LM Studio, Ollama) in addition to OpenAI and Anthropic.
+- **LangGraph Orchestration**: Manages complex agent workflows and state.
+- **FastMCP Server**: Exposes all capabilities as standard MCP tools for integration with IDEs (Cursor, VS Code) and AI assistants (Claude Desktop).
 
 ## Installation
 
 1.  **Clone the repository**:
+
     ```bash
     git clone https://github.com/pankajshakya627/PR-AGENT.git
     cd PR-AGENT
     ```
 
 2.  **Create and activate a virtual environment**:
+
     ```bash
     python -m venv venv
     source venv/bin/activate
@@ -566,12 +591,12 @@ python main.py
 
 The server exposes the following tools:
 
--   **`describe_pr(pr_url)`**: Generates a full PR description (Title, Type, Summary, Walkthrough, Labels).
--   **`review_code(pr_url)`**: Performs a detailed code review, listing issues with severity and suggestions.
--   **`improve_code(pr_url)`**: Suggests code improvements and refactoring opportunities.
--   **`ask_pr(pr_url, question)`**: Answers specific questions about the PR.
--   **`update_changelog(pr_url)`**: Generates a changelog entry for the PR.
--   **`get_repo_structure(repo_url)`**: Returns the file structure of the repository.
+- **`describe_pr(pr_url)`**: Generates a full PR description (Title, Type, Summary, Walkthrough, Labels).
+- **`review_code(pr_url)`**: Performs a detailed code review, listing issues with severity and suggestions.
+- **`improve_code(pr_url)`**: Suggests code improvements and refactoring opportunities.
+- **`ask_pr(pr_url, question)`**: Answers specific questions about the PR.
+- **`update_changelog(pr_url)`**: Generates a changelog entry for the PR.
+- **`get_repo_structure(repo_url)`**: Returns the file structure of the repository.
 
 ## Directory Structure
 
@@ -609,6 +634,7 @@ pr-agent
 This project uses [TOON](https://github.com/toon-format/toon-python) for LLM outputs. TOON uses a compact table syntax for lists of objects, saving tokens compared to JSON.
 
 **Example TOON Output:**
+
 ```toon
 issues[2]{type,file,description}:
 bug,main.py,Fix null pointer exception
