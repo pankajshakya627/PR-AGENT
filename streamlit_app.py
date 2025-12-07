@@ -493,17 +493,23 @@ if st.session_state.results:
     for tool, result in st.session_state.results.items():
         with st.expander(f"Results: {tool}", expanded=True):
             if isinstance(result, dict):
-                # Check for markdown content in various result keys
-                content = (
-                    result.get('content') or 
-                    result.get('review') or 
-                    result.get('description') or 
-                    result.get('changelog_entry') or
-                    result.get('code_improvements') or
-                    result.get('improvements') or
-                    result.get('answer') or
-                    str(result)
-                )
+                # Try multiple possible keys
+                possible_keys = ['content', 'review', 'description', 'changelog_entry', 
+                                'code_improvements', 'improvements', 'answer', 'response']
+                content = None
+                for key in possible_keys:
+                    if key in result:
+                        val = result[key]
+                        # Handle nested dict case
+                        if isinstance(val, dict):
+                            content = str(val)
+                        else:
+                            content = val
+                        break
+                
+                if content is None:
+                    content = str(result)
+                    
                 st.markdown(content)
             else:
                 st.markdown(str(result))
