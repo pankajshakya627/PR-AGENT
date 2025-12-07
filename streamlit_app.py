@@ -476,7 +476,7 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                     state["question"] = additional_input
                 
                 # Run analysis
-                result = asyncio.run(agent.run(state))
+                result = asyncio.run(agent.execute(state))
                 
                 # Store and display result
                 st.session_state.results[selected_tool] = result
@@ -493,8 +493,17 @@ if st.session_state.results:
     for tool, result in st.session_state.results.items():
         with st.expander(f"Results: {tool}", expanded=True):
             if isinstance(result, dict):
-                # Check for markdown content
-                content = result.get('content') or result.get('review') or result.get('description') or str(result)
+                # Check for markdown content in various result keys
+                content = (
+                    result.get('content') or 
+                    result.get('review') or 
+                    result.get('description') or 
+                    result.get('changelog_entry') or
+                    result.get('code_improvements') or
+                    result.get('improvements') or
+                    result.get('answer') or
+                    str(result)
+                )
                 st.markdown(content)
             else:
                 st.markdown(str(result))
