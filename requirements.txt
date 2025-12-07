@@ -3,3 +3,7 @@ python-dotenv
 PyGithub
 PyYAML
 toon-python
+streamlit>=1.29.0
+langchain-openai>=0.1.0
+langchain-anthropic>=0.1.0
+langchain-core>=0.2.0

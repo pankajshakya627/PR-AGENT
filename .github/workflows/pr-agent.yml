@@ -1,0 +1,150 @@
+name: PR-Agent Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to analyze'
+        required: false
+        type: number
+      action:
+        description: 'Action to perform'
+        required: false
+        default: 'review'
+        type: choice
+        options:
+          - review
+          - describe
+          - improve
+          - changelog
+          - all
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  pr-agent:
+    runs-on: ubuntu-latest
+    name: Analyze PR
+    
+    # Skip if PR is from a fork (security)
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better diff analysis
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Get PR Number
+        id: pr
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.pr_number }}" ]; then
+            echo "number=${{ inputs.pr_number }}" >> $GITHUB_OUTPUT
+          else
+            echo "number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Determine Action
+        id: action
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "action=${{ inputs.action || 'review' }}" >> $GITHUB_OUTPUT
+          else
+            # Check for labels to determine action
+            LABELS="${{ join(github.event.pull_request.labels.*.name, ',') }}"
+            if [[ "$LABELS" == *"pr-agent:all"* ]]; then
+              echo "action=all" >> $GITHUB_OUTPUT
+            elif [[ "$LABELS" == *"pr-agent:describe"* ]]; then
+              echo "action=describe" >> $GITHUB_OUTPUT
+            elif [[ "$LABELS" == *"pr-agent:improve"* ]]; then
+              echo "action=improve" >> $GITHUB_OUTPUT
+            elif [[ "$LABELS" == *"pr-agent:changelog"* ]]; then
+              echo "action=changelog" >> $GITHUB_OUTPUT
+            else
+              echo "action=review" >> $GITHUB_OUTPUT
+            fi
+          fi
+      
+      - name: Run PR-Agent Analysis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openai' }}
+        run: |
+          python cli.py \
+            --action ${{ steps.action.outputs.action }} \
+            --pr-number ${{ steps.pr.outputs.number }} \
+            --repo ${{ github.repository }} \
+            --post-comment
+      
+      - name: Handle Errors
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: ${{ steps.pr.outputs.number }},
+              body: '❌ **PR-Agent encountered an error during analysis.**\n\nPlease check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.'
+            })
+
+  # Optional: Separate job for comprehensive analysis on labeled PRs
+  comprehensive-review:
+    runs-on: ubuntu-latest
+    name: Comprehensive Review
+    if: contains(github.event.pull_request.labels.*.name, 'pr-agent:comprehensive')
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run Comprehensive Analysis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openai' }}
+        run: |
+          python cli.py \
+            --action all \
+            --pr-number ${{ github.event.pull_request.number }} \
+            --repo ${{ github.repository }} \
+            --post-comment
