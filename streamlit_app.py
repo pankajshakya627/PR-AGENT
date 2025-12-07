@@ -15,6 +15,7 @@ import os
 import sys
 import re
 from pathlib import Path
+import datetime
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -479,7 +480,10 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                 result = asyncio.run(agent.execute(state))
                 
                 # Store and display result
-                st.session_state.results[selected_tool] = result
+                # Create unique key with timestamp to preserve history and ordering
+                timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+                unique_key = f"{selected_tool} ({timestamp})"
+                st.session_state.results[unique_key] = result
                 
                 st.success("✅ Analysis complete!")
                 
