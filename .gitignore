@@ -84,3 +84,7 @@ credentials/
 
 # Backup/Workback directory
 wokback/
+
+# User data
+data/users.json
+config/auth_config.yaml
