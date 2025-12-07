@@ -13,6 +13,11 @@ on:
 permissions:
   contents: read
 
+# Cancel in-progress runs
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security-check:
     name: Dependency Security Check

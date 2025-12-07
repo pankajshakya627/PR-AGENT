@@ -59,6 +59,11 @@ permissions:
   pull-requests: write
   issues: write
 
+# Cancel in-progress runs for the same PR
+concurrency:
+  group: pr-agent-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   PYTHON_VERSION: '3.11'
 
@@ -67,8 +72,10 @@ jobs:
     runs-on: ubuntu-latest
     name: Analyze PR
     
-    # Skip if PR is from a fork (security)
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch'
+    # Skip if PR is from a fork (security) or from dependabot
+    if: |
+      (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') &&
+      github.actor != 'dependabot[bot]'
     
     steps:
       - name: Checkout Repository
