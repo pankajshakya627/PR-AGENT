@@ -128,25 +128,28 @@ async def run_analysis(action: str, pr_number: int, repo: str, verbose: bool = F
     pr_url = f"https://github.com/{repo}/pull/{pr_number}"
     
     provider = GitHubProvider(github_token)
-    pr_data = provider.get_pr_data(pr_url)
     
-    if not pr_data:
-        raise RuntimeError(f"Failed to fetch PR data from {pr_url}")
+    # Fetch diff and details using correct methods
+    try:
+        diff = provider.get_pr_diff(pr_url)
+        pr_details = provider.get_pr_details(pr_url)
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch PR data from {pr_url}: {e}")
     
-    diff = pr_data.get("diff", "")
     if not diff:
         raise RuntimeError("No diff content found in PR")
     
     if verbose:
         print(f"📊 Diff size: {len(diff)} characters")
+        print(f"📝 PR Title: {pr_details.get('title', 'N/A')}")
     
     # Prepare state for agents
     state = {
-        "pr_requirements": f"Analyze PR #{pr_number}",
+        "pr_requirements": f"Analyze PR #{pr_number}: {pr_details.get('title', '')}",
         "pr_url": pr_url,
         "github_token": github_token,
         "diff": diff,
-        "pr_data": pr_data,
+        "pr_details": pr_details,
         "agent_results": {},
         "execution_mode": "sequential",
         "task_graph": {},
