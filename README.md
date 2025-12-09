@@ -51,35 +51,44 @@ graph TD
     style LLM fill:#faa,stroke:#333
 ```
 
-
 ## 📂 Directory Structure
 
 ```plaintext
 pr-agent/
 ├── 📂 .github/              # GitHub Actions & Dependabot
-│   ├── workflows/        # CI/CD Workflows
-│   └── dependabot.yml    # Dependency updates
-├── 📂 config/               # Configuration files
-│   └── auth_config.yaml  # User authentication data
-├── 📂 data/                 # Local data storage
-│   └── users.json        # User database
+│   ├── workflows/           # CI/CD Workflows
+│   │   └── security-scan.yml
+│   └── dependabot.yml       # Dependency updates
 ├── 📂 docs/                 # Documentation
-│   ├── CICD_SETUP.md     # GitHub Actions Setup
+│   ├── CICD_SETUP.md        # GitHub Actions Setup
 │   ├── PORTABLE_WORKFLOW.md # Portable usage guide
-│   └── ...
+│   ├── QUICKSTART.md        # Quick start guide
+│   ├── SECURITY.md          # Security policy
+│   └── STREAMLIT_FORMATTING.md
 ├── 📂 src/                  # Source Code
-│   ├── 📂 agents/        # Specialized LLM Agents
-│   ├── auth.py           # Authentication logic
-│   ├── analyzer.py       # Task dependency analyzer
-│   ├── config.py         # Configuration management
-│   ├── github_provider.py# GitHub API interaction
-│   ├── graph.py          # LangGraph orchestration
-│   └── toon_io.py        # Structured output parser
-├── .env.example            # Environment variables template
-├── cli.py                  # CLI Entry point
-├── main.py                 # FastMCP Server Entry point
-├── streamlit_app.py        # Streamlit Web UI Entry point
-└── requirements.txt        # Python dependencies
+│   ├── 📂 agents/           # Specialized LLM Agents
+│   │   ├── base.py          # Base agent class
+│   │   └── specialized.py   # All agent implementations
+│   ├── analyzer.py          # Task dependency analyzer
+│   ├── auth.py              # Authentication logic
+│   ├── config.py            # Configuration management
+│   ├── github_commenter.py  # GitHub PR commenting
+│   ├── github_provider.py   # GitHub API interaction
+│   ├── graph.py             # LangGraph orchestration
+│   ├── prompts.py           # Centralized LLM prompts
+│   ├── state.py             # Agent state definitions
+│   ├── toon_io.py           # Structured output parser
+│   └── utils.py             # Utility functions
+├── 📂 tests/                # Test suite
+│   ├── test_functionality.py
+│   └── verify_mcp.py
+├── .env.example             # Environment variables template
+├── cli.py                   # CLI Entry point
+├── main.py                  # FastMCP Server Entry point
+├── streamlit_app.py         # Streamlit Web UI Entry point
+├── run_streamlit.sh         # Streamlit launcher script
+├── run_agent.sh             # Agent launcher script
+└── requirements.txt         # Python dependencies
 ```
 
 ## 🔄 How It Works
