@@ -267,7 +267,7 @@ if st.session_state.get("authentication_status") != True:
 from src.config import get_llm_config, get_agent_config
 from src.agents.specialized import (
     CodeReviewAgent, PRDescriptionAgent, CodeImprovementAgent,
-    PRQuestionsAgent, ChangelogAgent
+    PRQuestionsAgent, ChangelogAgent, CommitPRGeneratorAgent
 )
 
 # Initialize session state
@@ -438,7 +438,8 @@ tool_options = {
     "📝 PR Description": "Generate PR title and description",
     "💡 Code Improvement": "Suggest code improvements and refactoring",
     "❓ PR Questions": "Answer questions about the PR",
-    "📜 Changelog": "Generate changelog entry"
+    "📜 Changelog": "Generate changelog entry",
+    "🔧 Generate PR from Commit": "Generate PR title & description from a commit URL"
 }
 
 selected_tool = st.selectbox(
@@ -450,11 +451,23 @@ selected_tool = st.selectbox(
 # Input section
 st.subheader("📥 Input")
 
-pr_url = st.text_input(
-    "Pull Request URL",
-    placeholder="https://github.com/owner/repo/pull/123",
-    help="Enter the full GitHub PR URL"
-)
+# Different input based on tool type
+if "Commit" in selected_tool:
+    url_input = st.text_input(
+        "Commit URL",
+        placeholder="https://github.com/owner/repo/commit/abc123",
+        help="Enter the full GitHub commit URL"
+    )
+    pr_url = None
+    commit_url = url_input
+else:
+    url_input = st.text_input(
+        "Pull Request URL",
+        placeholder="https://github.com/owner/repo/pull/123",
+        help="Enter the full GitHub PR URL"
+    )
+    pr_url = url_input
+    commit_url = None
 
 # Additional inputs based on tool
 additional_input = None
@@ -467,10 +480,10 @@ if "Questions" in selected_tool:
 
 # Run analysis button
 if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
-    if not pr_url:
-        st.error("Please enter a PR URL")
+    if not url_input:
+        st.error("Please enter a URL")
     else:
-        with st.spinner("🔄 Analyzing PR..."):
+        with st.spinner("🔄 Analyzing..."):
             try:
                 # Create agent based on selection
                 if "Code Review" in selected_tool:
@@ -483,9 +496,14 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                     agent = PRQuestionsAgent()
                 elif "Changelog" in selected_tool:
                     agent = ChangelogAgent()
+                elif "Commit" in selected_tool:
+                    agent = CommitPRGeneratorAgent()
                 
                 # Prepare state
-                state = {"pr_url": pr_url}
+                if commit_url:
+                    state = {"commit_url": commit_url}
+                else:
+                    state = {"pr_url": pr_url}
                 if additional_input:
                     state["question"] = additional_input
                 
@@ -513,7 +531,7 @@ if st.session_state.results:
             if isinstance(result, dict):
                 # Try multiple possible keys
                 possible_keys = ['content', 'code_review', 'review', 'description', 'pr_description', 'changelog_entry', 
-                                'code_improvements', 'improvements', 'answer', 'response']
+                                'code_improvements', 'improvements', 'answer', 'response', 'pr_from_commit']
                 content = None
                 for key in possible_keys:
                     if key in result:

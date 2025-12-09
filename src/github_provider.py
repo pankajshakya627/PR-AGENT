@@ -99,3 +99,117 @@ class GitHubProvider:
                 all_files.append(file_content.path)
                 
         return all_files
+
+    def _get_repo_and_commit_sha(self, commit_url: str) -> tuple[str, str]:
+        """Extracts repo name and commit SHA from a commit URL.
+        
+        Example: https://github.com/owner/repo/commit/abc123def456
+        """
+        parts = commit_url.rstrip("/").split("/")
+        if "github.com" not in parts:
+            raise ValueError("Invalid GitHub URL")
+        
+        try:
+            commit_index = parts.index("commit")
+            commit_sha = parts[commit_index + 1]
+            repo_name = f"{parts[commit_index - 2]}/{parts[commit_index - 1]}"
+            return repo_name, commit_sha
+        except (ValueError, IndexError):
+            raise ValueError(f"Could not parse commit URL: {commit_url}")
+
+    def get_commit_diff(self, commit_url: str) -> str:
+        """Fetches the diff of a specific commit."""
+        repo_name, commit_sha = self._get_repo_and_commit_sha(commit_url)
+        repo = self.client.get_repo(repo_name)
+        commit = repo.get_commit(commit_sha)
+        
+        diff_output = []
+        for file in commit.files:
+            diff_output.append(f"--- {file.filename}")
+            diff_output.append(f"+++ {file.filename}")
+            if file.patch:
+                diff_output.append(file.patch)
+            else:
+                diff_output.append("(Binary file or large diff not shown)")
+            diff_output.append("\n")
+        
+        return "\n".join(diff_output)
+
+    def get_commit_details(self, commit_url: str) -> Dict[str, Any]:
+        """Fetches details about a specific commit."""
+        repo_name, commit_sha = self._get_repo_and_commit_sha(commit_url)
+        repo = self.client.get_repo(repo_name)
+        commit = repo.get_commit(commit_sha)
+        
+        # Convert PaginatedList to regular list
+        files_list = list(commit.files)
+        
+        return {
+            "sha": commit.sha,
+            "message": commit.commit.message,
+            "author": commit.commit.author.name if commit.commit.author else "Unknown",
+            "date": str(commit.commit.author.date) if commit.commit.author else "",
+            "files_changed": len(files_list),
+            "additions": commit.stats.additions,
+            "deletions": commit.stats.deletions,
+            "files": [f.filename for f in files_list]
+        }
+
+    def create_pr(self, repo_name: str, title: str, body: str, 
+                  head: str, base: str = "main") -> Dict[str, Any]:
+        """
+        Creates a new Pull Request on GitHub.
+        
+        Args:
+            repo_name: Repository in format 'owner/repo'
+            title: PR title
+            body: PR description/body
+            head: Source branch (the branch with your changes)
+            base: Target branch (e.g., 'main' or 'master')
+            
+        Returns:
+            Dictionary with PR details including URL and number
+        """
+        repo = self.client.get_repo(repo_name)
+        
+        try:
+            pr = repo.create_pull(
+                title=title,
+                body=body,
+                head=head,
+                base=base
+            )
+            
+            return {
+                "success": True,
+                "pr_number": pr.number,
+                "pr_url": pr.html_url,
+                "title": pr.title,
+                "state": pr.state
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    def get_repo_branches(self, repo_name: str) -> List[str]:
+        """Get list of branches in a repository."""
+        repo = self.client.get_repo(repo_name)
+        return [branch.name for branch in repo.get_branches()]
+
+    def get_commit_branch(self, commit_url: str) -> Optional[str]:
+        """Try to find the branch containing a specific commit."""
+        repo_name, commit_sha = self._get_repo_and_commit_sha(commit_url)
+        repo = self.client.get_repo(repo_name)
+        
+        # Get branches and check if commit is in any
+        for branch in repo.get_branches():
+            try:
+                # Check if branch head matches or contains the commit
+                if branch.commit.sha == commit_sha:
+                    return branch.name
+            except:
+                pass
+        
+        return None

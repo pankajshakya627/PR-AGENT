@@ -6,6 +6,7 @@ Usage:
     python cli.py --action review --pr-number 123 --repo owner/repo --post-comment
     python cli.py --action describe --pr-number 123 --repo owner/repo
     python cli.py --action all --pr-number 123 --repo owner/repo --post-comment
+    python cli.py --action generate --commit-url https://github.com/owner/repo/commit/abc123
 """
 
 import os
@@ -27,7 +28,8 @@ from src.agents.specialized import (  # noqa: E402
     CodeReviewAgent,
     PRDescriptionAgent,
     CodeImprovementAgent,
-    ChangelogAgent
+    ChangelogAgent,
+    CommitPRGeneratorAgent
 )
 
 
@@ -41,14 +43,16 @@ Examples:
   python cli.py --action review --pr-number 123 --repo owner/repo
   python cli.py --action all --pr-number 42 --repo myorg/myrepo --post-comment
   python cli.py --action describe --pr-url https://github.com/owner/repo/pull/123
+  python cli.py --action generate --commit-url https://github.com/owner/repo/commit/abc123
+  python cli.py --action generate --commit-url https://github.com/owner/repo/commit/abc123 --create-pr --head-branch feature-branch
         """
     )
     
     parser.add_argument(
         "--action",
-        choices=["review", "describe", "improve", "changelog", "all"],
+        choices=["review", "describe", "improve", "changelog", "generate", "all"],
         default="review",
-        help="Action to perform (default: review)"
+        help="Action to perform: review, describe, improve, changelog, generate (from commit), all (default: review)"
     )
     
     parser.add_argument(
@@ -61,6 +65,12 @@ Examples:
         "--pr-url",
         type=str,
         help="Full PR URL (alternative to --pr-number and --repo)"
+    )
+    
+    parser.add_argument(
+        "--commit-url",
+        type=str,
+        help="GitHub commit URL for 'generate' action (e.g., https://github.com/owner/repo/commit/abc123)"
     )
     
     parser.add_argument(
@@ -88,6 +98,31 @@ Examples:
         "-v",
         action="store_true",
         help="Verbose output"
+    )
+    
+    parser.add_argument(
+        "--create-pr",
+        action="store_true",
+        help="Create a PR after generating the description (requires --head-branch)"
+    )
+    
+    parser.add_argument(
+        "--head-branch",
+        type=str,
+        help="Source branch for PR creation (the branch with your changes)"
+    )
+    
+    parser.add_argument(
+        "--base-branch",
+        type=str,
+        default="main",
+        help="Target branch for PR creation (default: main)"
+    )
+    
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompts (auto-confirm PR creation)"
     )
     
     return parser.parse_args()
@@ -188,6 +223,53 @@ async def run_analysis(action: str, pr_number: int, repo: str, verbose: bool = F
     return results
 
 
+async def run_commit_analysis(commit_url: str, verbose: bool = False):
+    """Generate PR title and description from a commit URL."""
+    
+    if verbose:
+        print(f"📥 Fetching commit from {commit_url}...")
+    
+    github_token = os.getenv("GITHUB_TOKEN")
+    provider = GitHubProvider(github_token)
+    
+    # Fetch commit details
+    try:
+        commit_details = provider.get_commit_details(commit_url)
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch commit data: {e}")
+    
+    if verbose:
+        print(f"📝 Commit message: {commit_details.get('message', 'N/A')[:50]}...")
+        print(f"👤 Author: {commit_details.get('author', 'Unknown')}")
+        print(f"📊 Files changed: {commit_details.get('files_changed', 0)}")
+    
+    # Prepare state for agent
+    state = {
+        "pr_requirements": "",
+        "commit_url": commit_url,
+        "github_token": github_token,
+        "agent_results": {},
+        "execution_mode": "sequential",
+        "task_graph": {},
+        "final_pr": None,
+        "errors": []
+    }
+    
+    if verbose:
+        print("🤖 Running PR Generator from Commit...")
+    
+    try:
+        agent = CommitPRGeneratorAgent()
+        result = await agent.execute(state)
+        if verbose:
+            print("✅ PR generation completed")
+        return {"Generated PR": result}
+    except Exception as e:
+        if verbose:
+            print(f"❌ PR generation failed: {e}")
+        return {"Generated PR": {"error": str(e)}}
+
+
 def format_results(results: dict, output_format: str = "markdown") -> str:
     """Format results for output."""
     
@@ -228,22 +310,92 @@ async def main():
     args = parse_args()
     
     try:
-        # Extract PR info
-        pr_number, repo = extract_pr_info(args)
-        
-        if args.verbose:
-            config = get_llm_config()
-            print(f"🔧 Using LLM provider: {config['provider']}")
-            print(f"📋 Analyzing PR #{pr_number} in {repo}")
-            print(f"🎯 Action: {args.action}")
-        
-        # Run analysis
-        results = await run_analysis(
-            action=args.action,
-            pr_number=pr_number,
-            repo=repo,
-            verbose=args.verbose
-        )
+        # Handle generate action (commit-based) separately
+        if args.action == "generate":
+            if not args.commit_url:
+                raise ValueError("--commit-url is required for 'generate' action")
+            
+            if args.create_pr and not args.head_branch:
+                raise ValueError("--head-branch is required when using --create-pr")
+            
+            if args.verbose:
+                config = get_llm_config()
+                print(f"🔧 Using LLM provider: {config['provider']}")
+                print(f"🎯 Action: generate PR from commit")
+            
+            results = await run_commit_analysis(
+                commit_url=args.commit_url,
+                verbose=args.verbose
+            )
+            
+            # Handle PR creation if requested
+            if args.create_pr:
+                # Extract generated content
+                generated = results.get("Generated PR", {})
+                pr_content = generated.get("pr_from_commit", "")
+                
+                if isinstance(pr_content, dict) and "error" in pr_content:
+                    print(f"❌ Cannot create PR: {pr_content['error']}")
+                else:
+                    # Parse title from the generated content
+                    import re
+                    title_match = re.search(r'## Title\s*\n\*?\*?([^\n*]+)', pr_content)
+                    title = title_match.group(1).strip() if title_match else "PR from commit"
+                    
+                    # Extract repo from commit URL
+                    parts = args.commit_url.rstrip('/').split('/')
+                    commit_idx = parts.index('commit')
+                    repo_name = f"{parts[commit_idx - 2]}/{parts[commit_idx - 1]}"
+                    
+                    # Show summary and ask for confirmation
+                    print("\n" + "="*60)
+                    print("📋 PR CREATION PREVIEW")
+                    print("="*60)
+                    print(f"📁 Repository: {repo_name}")
+                    print(f"🔀 Branch: {args.head_branch} → {args.base_branch}")
+                    print(f"📝 Title: {title}")
+                    print("="*60)
+                    
+                    if not args.yes:
+                        confirm = input("\n⚠️  Create this PR? [y/N]: ").strip().lower()
+                        if confirm not in ['y', 'yes']:
+                            print("❌ PR creation cancelled.")
+                            return 0
+                    
+                    # Create the PR
+                    print("\n🚀 Creating PR on GitHub...")
+                    provider = GitHubProvider()
+                    result = provider.create_pr(
+                        repo_name=repo_name,
+                        title=title,
+                        body=pr_content,
+                        head=args.head_branch,
+                        base=args.base_branch
+                    )
+                    
+                    if result.get("success"):
+                        print(f"\n✅ PR created successfully!")
+                        print(f"   🔗 {result['pr_url']}")
+                        print(f"   📋 PR #{result['pr_number']}")
+                    else:
+                        print(f"\n❌ Failed to create PR: {result.get('error')}")
+        else:
+            # Extract PR info for other actions
+            pr_number, repo = extract_pr_info(args)
+            
+            if args.verbose:
+                config = get_llm_config()
+                print(f"🔧 Using LLM provider: {config['provider']}")
+                print(f"📋 Analyzing PR #{pr_number} in {repo}")
+                print(f"🎯 Action: {args.action}")
+            
+            # Run analysis
+            results = await run_analysis(
+                action=args.action,
+                pr_number=pr_number,
+                repo=repo,
+                verbose=args.verbose
+            )
         
         # Format output
         formatted_output = format_results(results, args.output)

@@ -12,7 +12,8 @@ from src.prompts import (
     PR_DESCRIPTION_SYSTEM_PROMPT, PR_DESCRIPTION_USER_PROMPT,
     CODE_IMPROVEMENT_SYSTEM_PROMPT, CODE_IMPROVEMENT_USER_PROMPT,
     PR_QUESTIONS_SYSTEM_PROMPT, PR_QUESTIONS_USER_PROMPT,
-    CHANGELOG_SYSTEM_PROMPT, CHANGELOG_USER_PROMPT
+    CHANGELOG_SYSTEM_PROMPT, CHANGELOG_USER_PROMPT,
+    COMMIT_PR_GENERATOR_SYSTEM_PROMPT, COMMIT_PR_GENERATOR_USER_PROMPT
 )
 
 class BaseLLMAgent(BaseAgent):
@@ -234,6 +235,53 @@ class ChangelogAgent(BaseLLMAgent):
 
     async def validate_input(self, context: PRAgentState) -> bool:
         return "pr_url" in context
+
+    def get_dependencies(self) -> List[str]:
+        return []
+
+class CommitPRGeneratorAgent(BaseLLMAgent):
+    """Agent that generates PR title and description from a commit URL."""
+    
+    async def _get_commit_diff_and_details(self, context: PRAgentState) -> tuple[str, Dict[str, Any]]:
+        """Fetch commit diff and details from GitHub."""
+        commit_url = context.get("commit_url")
+        if not commit_url:
+            raise ValueError("No commit URL provided")
+        
+        github = GitHubProvider(token=context.get("github_token"))
+        diff = github.get_commit_diff(commit_url)
+        details = github.get_commit_details(commit_url)
+        
+        if not diff:
+            raise ValueError("Empty diff")
+        return diff, details
+    
+    async def execute(self, context: PRAgentState) -> Dict[str, Any]:
+        try:
+            diff, details = await self._get_commit_diff_and_details(context)
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", COMMIT_PR_GENERATOR_SYSTEM_PROMPT),
+                ("user", COMMIT_PR_GENERATOR_USER_PROMPT)
+            ])
+
+            chain = prompt | self.llm
+            response = await chain.ainvoke({
+                "diff": diff[:20000],
+                "commit_message": details.get("message", ""),
+                "author": details.get("author", "Unknown"),
+                "files_changed": details.get("files_changed", 0),
+                "additions": details.get("additions", 0),
+                "deletions": details.get("deletions", 0)
+            })
+            
+            # Return raw markdown directly
+            return {"pr_from_commit": response.content}
+        except Exception as e:
+            return {"pr_from_commit": {"error": str(e)}}
+
+    async def validate_input(self, context: PRAgentState) -> bool:
+        return "commit_url" in context
 
     def get_dependencies(self) -> List[str]:
         return []
