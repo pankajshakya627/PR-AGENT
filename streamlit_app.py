@@ -269,6 +269,7 @@ from src.agents.specialized import (
     CodeReviewAgent, PRDescriptionAgent, CodeImprovementAgent,
     PRQuestionsAgent, ChangelogAgent, CommitPRGeneratorAgent
 )
+from src.github_provider import GitHubProvider
 
 # Initialize session state
 if 'provider' not in st.session_state:
@@ -518,6 +519,11 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                 
                 st.success("✅ Analysis complete!")
                 
+                # Store for PR creation if it's a commit analysis
+                if "Commit" in selected_tool and "pr_from_commit" in result:
+                    st.session_state['last_pr_content'] = result.get('pr_from_commit', '')
+                    st.session_state['last_commit_url'] = commit_url
+                
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
@@ -549,3 +555,73 @@ if st.session_state.results:
                 st.markdown(content)
             else:
                 st.markdown(str(result))
+
+# PR Creation Section - shown AFTER generating PR from commit
+if st.session_state.get('last_pr_content') and st.session_state.get('last_commit_url'):
+    st.divider()
+    st.subheader("🚀 Create Pull Request on GitHub")
+    st.info("👆 **Review the generated PR description above**, then create the PR:")
+    
+    # Extract repo from commit URL
+    last_commit_url = st.session_state.get('last_commit_url', '')
+    parts = last_commit_url.rstrip('/').split('/')
+    try:
+        commit_idx = parts.index('commit')
+        repo_name = f"{parts[commit_idx - 2]}/{parts[commit_idx - 1]}"
+    except:
+        repo_name = "Unknown"
+    
+    # Parse title from content
+    import re
+    pr_content = st.session_state.get('last_pr_content', '')
+    title_match = re.search(r'## Title\s*\n\*?\*?([^\n*]+)', pr_content)
+    title = title_match.group(1).strip() if title_match else "PR from commit"
+    
+    # Branch inputs
+    col1, col2 = st.columns(2)
+    with col1:
+        head_branch = st.text_input(
+            "Source Branch (head)",
+            placeholder="your-feature-branch",
+            help="The branch containing your changes"
+        )
+    with col2:
+        base_branch = st.text_input(
+            "Target Branch (base)",
+            value="main",
+            help="The branch to merge into (e.g., main, master)"
+        )
+    
+    # Show preview
+    if head_branch:
+        st.success(f"""
+        **📁 Repository:** `{repo_name}`  
+        **🔀 Merge:** `{head_branch}` → `{base_branch}`  
+        **📝 Title:** {title}
+        """)
+        
+        if st.button("✅ Create PR on GitHub", type="primary", use_container_width=True):
+            try:
+                provider = GitHubProvider()
+                result = provider.create_pr(
+                    repo_name=repo_name,
+                    title=title,
+                    body=pr_content,
+                    head=head_branch,
+                    base=base_branch
+                )
+                
+                if result.get("success"):
+                    st.balloons()
+                    st.success(f"✅ PR created successfully!")
+                    st.markdown(f"### 🔗 [View PR #{result['pr_number']}]({result['pr_url']})")
+                    # Clear the stored content
+                    st.session_state.pop('last_pr_content', None)
+                    st.session_state.pop('last_commit_url', None)
+                else:
+                    st.error(f"❌ Failed to create PR: {result.get('error')}")
+            except Exception as e:
+                st.error(f"❌ Error creating PR: {str(e)}")
+    else:
+        st.warning("⚠️ Enter the source branch name to create a PR")
+
