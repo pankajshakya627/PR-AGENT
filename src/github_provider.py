@@ -229,9 +229,13 @@ class GitHubProvider:
         repo = self.client.get_repo(repo_name)
         comparison = repo.compare(base, head)
         
+        # Convert PaginatedList to regular list
+        files_list = list(comparison.files)
+        commits_list = list(comparison.commits)
+        
         # Build combined diff from all files
         diff_output = []
-        for file in comparison.files:
+        for file in files_list:
             diff_output.append(f"--- {file.filename}")
             diff_output.append(f"+++ {file.filename}")
             if file.patch:
@@ -242,7 +246,7 @@ class GitHubProvider:
         
         # Get commit messages
         commit_messages = []
-        for commit in comparison.commits:
+        for commit in commits_list:
             commit_messages.append({
                 "sha": commit.sha[:7],
                 "message": commit.commit.message.split('\n')[0],  # First line only
@@ -254,10 +258,10 @@ class GitHubProvider:
             "head": head,
             "ahead_by": comparison.ahead_by,
             "behind_by": comparison.behind_by,
-            "total_commits": len(comparison.commits),
-            "files_changed": len(comparison.files),
-            "additions": sum(f.additions for f in comparison.files),
-            "deletions": sum(f.deletions for f in comparison.files),
+            "total_commits": len(commits_list),
+            "files_changed": len(files_list),
+            "additions": sum(f.additions for f in files_list),
+            "deletions": sum(f.deletions for f in files_list),
             "diff": "\n".join(diff_output),
             "commits": commit_messages
         }

@@ -619,9 +619,16 @@ if st.session_state.get('last_pr_content') and (st.session_state.get('last_commi
         stored_head = st.session_state.get('last_head_branch', '')
         stored_base = st.session_state.get('last_base_branch', 'main')
     
-    # Parse title from content
+    # Parse title from content (handle error case where content is dict)
     import re
     pr_content = st.session_state.get('last_pr_content', '')
+    if isinstance(pr_content, dict):
+        # Error case - clear and skip PR creation
+        if 'error' in pr_content:
+            st.error(f"❌ Error in PR generation: {pr_content.get('error')}")
+            st.session_state.pop('last_pr_content', None)
+            st.stop()
+        pr_content = str(pr_content)
     title_match = re.search(r'## Title\s*\n\*?\*?([^\n*]+)', pr_content)
     title = title_match.group(1).strip() if title_match else "PR from commit"
     
