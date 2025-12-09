@@ -478,6 +478,16 @@ if "Branches" in selected_tool:
             value="main",
             help="The branch to merge into"
         )
+    
+    # Commit limit option
+    commit_limit = st.number_input(
+        "Limit to last N commits (0 = all)",
+        min_value=0,
+        max_value=100,
+        value=0,
+        help="Limit analysis to the last N commits. Set to 0 to include all commits."
+    )
+    
     url_input = repo_name  # Use repo_name for validation
     pr_url = None
     commit_url = None
@@ -535,7 +545,8 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                     state = {
                         "repo_name": repo_name,
                         "head_branch": head_branch,
-                        "base_branch": base_branch
+                        "base_branch": base_branch,
+                        "commit_limit": commit_limit if commit_limit > 0 else None
                     }
                 elif commit_url:
                     state = {"commit_url": commit_url}
@@ -671,7 +682,11 @@ if st.session_state.get('last_pr_content') and (st.session_state.get('last_commi
                 
                 if result.get("success"):
                     st.balloons()
-                    st.success(f"✅ PR created successfully!")
+                    action = result.get("action", "created")
+                    if action == "updated":
+                        st.success(f"✅ Existing PR updated successfully!")
+                    else:
+                        st.success(f"✅ PR created successfully!")
                     st.markdown(f"### 🔗 [View PR #{result['pr_number']}]({result['pr_url']})")
                     # Clear the stored content
                     st.session_state.pop('last_pr_content', None)

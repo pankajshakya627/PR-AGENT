@@ -155,10 +155,24 @@ class GitHubProvider:
             "files": [f.filename for f in files_list]
         }
 
-    def create_pr(self, repo_name: str, title: str, body: str, 
-                  head: str, base: str = "main") -> Dict[str, Any]:
+    def find_existing_pr(self, repo_name: str, head: str, base: str) -> Optional[Dict[str, Any]]:
+        """Find an existing open PR from head to base branch."""
+        repo = self.client.get_repo(repo_name)
+        
+        # Get open PRs from head to base
+        pulls = repo.get_pulls(state='open', head=f"{repo_name.split('/')[0]}:{head}", base=base)
+        for pr in pulls:
+            return {
+                "pr_number": pr.number,
+                "pr_url": pr.html_url,
+                "title": pr.title
+            }
+        return None
+
+    def create_or_update_pr(self, repo_name: str, title: str, body: str, 
+                             head: str, base: str = "main") -> Dict[str, Any]:
         """
-        Creates a new Pull Request on GitHub.
+        Creates a new Pull Request or updates an existing one.
         
         Args:
             repo_name: Repository in format 'owner/repo'
@@ -172,26 +186,48 @@ class GitHubProvider:
         """
         repo = self.client.get_repo(repo_name)
         
+        # Check for existing PR
+        existing = self.find_existing_pr(repo_name, head, base)
+        
         try:
-            pr = repo.create_pull(
-                title=title,
-                body=body,
-                head=head,
-                base=base
-            )
-            
-            return {
-                "success": True,
-                "pr_number": pr.number,
-                "pr_url": pr.html_url,
-                "title": pr.title,
-                "state": pr.state
-            }
+            if existing:
+                # Update existing PR
+                pr = repo.get_pull(existing["pr_number"])
+                pr.edit(title=title, body=body)
+                return {
+                    "success": True,
+                    "action": "updated",
+                    "pr_number": pr.number,
+                    "pr_url": pr.html_url,
+                    "title": pr.title,
+                    "state": pr.state
+                }
+            else:
+                # Create new PR
+                pr = repo.create_pull(
+                    title=title,
+                    body=body,
+                    head=head,
+                    base=base
+                )
+                return {
+                    "success": True,
+                    "action": "created",
+                    "pr_number": pr.number,
+                    "pr_url": pr.html_url,
+                    "title": pr.title,
+                    "state": pr.state
+                }
         except Exception as e:
             return {
                 "success": False,
                 "error": str(e)
             }
+
+    def create_pr(self, repo_name: str, title: str, body: str, 
+                  head: str, base: str = "main") -> Dict[str, Any]:
+        """Alias for create_or_update_pr for backward compatibility."""
+        return self.create_or_update_pr(repo_name, title, body, head, base)
 
     def get_repo_branches(self, repo_name: str) -> List[str]:
         """Get list of branches in a repository."""

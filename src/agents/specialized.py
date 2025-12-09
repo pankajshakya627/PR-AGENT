@@ -295,6 +295,7 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
             repo_name = context.get("repo_name")
             head_branch = context.get("head_branch")
             base_branch = context.get("base_branch", "main")
+            commit_limit = context.get("commit_limit")  # None or int
             
             if not repo_name or not head_branch:
                 raise ValueError("repo_name and head_branch are required")
@@ -302,11 +303,23 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
             github = GitHubProvider(token=context.get("github_token"))
             comparison = github.compare_branches(repo_name, base_branch, head_branch)
             
+            # Get commits (optionally limited)
+            all_commits = comparison.get("commits", [])
+            if commit_limit and len(all_commits) > commit_limit:
+                # Take the last N commits (most recent)
+                commits_to_use = all_commits[-commit_limit:]
+                limit_note = f"(showing last {commit_limit} of {len(all_commits)} total)"
+            else:
+                commits_to_use = all_commits
+                limit_note = ""
+            
             # Format commits list
             commits_list = "\n".join([
                 f"- {c['sha']}: {c['message']} ({c['author']})"
-                for c in comparison.get("commits", [])
+                for c in commits_to_use
             ])
+            if limit_note:
+                commits_list = f"{limit_note}\n{commits_list}"
             
             prompt = ChatPromptTemplate.from_messages([
                 ("system", BRANCH_PR_GENERATOR_SYSTEM_PROMPT),
@@ -317,7 +330,7 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
             response = await chain.ainvoke({
                 "head": head_branch,
                 "base": base_branch,
-                "total_commits": comparison.get("total_commits", 0),
+                "total_commits": len(commits_to_use),
                 "commits_list": commits_list or "No commits found",
                 "diff": comparison.get("diff", "")[:20000],
                 "files_changed": comparison.get("files_changed", 0),
