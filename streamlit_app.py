@@ -267,8 +267,9 @@ if st.session_state.get("authentication_status") != True:
 from src.config import get_llm_config, get_agent_config
 from src.agents.specialized import (
     CodeReviewAgent, PRDescriptionAgent, CodeImprovementAgent,
-    PRQuestionsAgent, ChangelogAgent
+    PRQuestionsAgent, ChangelogAgent, CommitPRGeneratorAgent, BranchPRGeneratorAgent
 )
+from src.github_provider import GitHubProvider
 
 # Initialize session state
 if 'provider' not in st.session_state:
@@ -438,7 +439,9 @@ tool_options = {
     "📝 PR Description": "Generate PR title and description",
     "💡 Code Improvement": "Suggest code improvements and refactoring",
     "❓ PR Questions": "Answer questions about the PR",
-    "📜 Changelog": "Generate changelog entry"
+    "📜 Changelog": "Generate changelog entry",
+    "🔧 Generate PR from Commit": "Generate PR title & description from a commit URL",
+    "🔀 Generate PR from Branches": "Compare branches and generate PR (includes all commits)"
 }
 
 selected_tool = st.selectbox(
@@ -450,11 +453,60 @@ selected_tool = st.selectbox(
 # Input section
 st.subheader("📥 Input")
 
-pr_url = st.text_input(
-    "Pull Request URL",
-    placeholder="https://github.com/owner/repo/pull/123",
-    help="Enter the full GitHub PR URL"
-)
+# Different input based on tool type
+repo_name = None
+head_branch = None
+base_branch = "main"
+
+if "Branches" in selected_tool:
+    st.info("🔀 Compare two branches to generate a PR description with all commits included.")
+    repo_name = st.text_input(
+        "Repository",
+        placeholder="owner/repo (e.g., pankajshakya627/PR-AGENT)",
+        help="Repository name in format 'owner/repo'"
+    )
+    col1, col2 = st.columns(2)
+    with col1:
+        head_branch = st.text_input(
+            "Source Branch (head)",
+            placeholder="develop",
+            help="The branch with your changes"
+        )
+    with col2:
+        base_branch = st.text_input(
+            "Target Branch (base)",
+            value="main",
+            help="The branch to merge into"
+        )
+    
+    # Commit limit option
+    commit_limit = st.number_input(
+        "Limit to last N commits (0 = all)",
+        min_value=0,
+        max_value=100,
+        value=0,
+        help="Limit analysis to the last N commits. Set to 0 to include all commits."
+    )
+    
+    url_input = repo_name  # Use repo_name for validation
+    pr_url = None
+    commit_url = None
+elif "Commit" in selected_tool:
+    url_input = st.text_input(
+        "Commit URL",
+        placeholder="https://github.com/owner/repo/commit/abc123",
+        help="Enter the full GitHub commit URL"
+    )
+    pr_url = None
+    commit_url = url_input
+else:
+    url_input = st.text_input(
+        "Pull Request URL",
+        placeholder="https://github.com/owner/repo/pull/123",
+        help="Enter the full GitHub PR URL"
+    )
+    pr_url = url_input
+    commit_url = None
 
 # Additional inputs based on tool
 additional_input = None
@@ -467,10 +519,10 @@ if "Questions" in selected_tool:
 
 # Run analysis button
 if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
-    if not pr_url:
-        st.error("Please enter a PR URL")
+    if not url_input:
+        st.error("Please enter a URL")
     else:
-        with st.spinner("🔄 Analyzing PR..."):
+        with st.spinner("🔄 Analyzing..."):
             try:
                 # Create agent based on selection
                 if "Code Review" in selected_tool:
@@ -483,9 +535,23 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                     agent = PRQuestionsAgent()
                 elif "Changelog" in selected_tool:
                     agent = ChangelogAgent()
+                elif "Commit" in selected_tool:
+                    agent = CommitPRGeneratorAgent()
+                elif "Branches" in selected_tool:
+                    agent = BranchPRGeneratorAgent()
                 
-                # Prepare state
-                state = {"pr_url": pr_url}
+                # Prepare state based on tool type
+                if "Branches" in selected_tool:
+                    state = {
+                        "repo_name": repo_name,
+                        "head_branch": head_branch,
+                        "base_branch": base_branch,
+                        "commit_limit": commit_limit if commit_limit > 0 else None
+                    }
+                elif commit_url:
+                    state = {"commit_url": commit_url}
+                else:
+                    state = {"pr_url": pr_url}
                 if additional_input:
                     state["question"] = additional_input
                 
@@ -500,6 +566,16 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                 
                 st.success("✅ Analysis complete!")
                 
+                # Store for PR creation if it's a commit or branch analysis
+                if "Commit" in selected_tool and "pr_from_commit" in result:
+                    st.session_state['last_pr_content'] = result.get('pr_from_commit', '')
+                    st.session_state['last_commit_url'] = commit_url
+                elif "Branches" in selected_tool and "pr_from_branch" in result:
+                    st.session_state['last_pr_content'] = result.get('pr_from_branch', '')
+                    st.session_state['last_repo_name'] = repo_name
+                    st.session_state['last_head_branch'] = head_branch
+                    st.session_state['last_base_branch'] = base_branch
+                
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
@@ -513,7 +589,7 @@ if st.session_state.results:
             if isinstance(result, dict):
                 # Try multiple possible keys
                 possible_keys = ['content', 'code_review', 'review', 'description', 'pr_description', 'changelog_entry', 
-                                'code_improvements', 'improvements', 'answer', 'response']
+                                'code_improvements', 'improvements', 'answer', 'response', 'pr_from_commit', 'pr_from_branch']
                 content = None
                 for key in possible_keys:
                     if key in result:
@@ -531,3 +607,97 @@ if st.session_state.results:
                 st.markdown(content)
             else:
                 st.markdown(str(result))
+
+# PR Creation Section - shown AFTER generating PR from commit or branches
+if st.session_state.get('last_pr_content') and (st.session_state.get('last_commit_url') or st.session_state.get('last_repo_name')):
+    st.divider()
+    st.subheader("🚀 Create Pull Request on GitHub")
+    st.info("👆 **Review the generated PR description above**, then create the PR:")
+    
+    # Determine repo from commit URL or stored repo_name
+    if st.session_state.get('last_commit_url'):
+        last_commit_url = st.session_state.get('last_commit_url', '')
+        parts = last_commit_url.rstrip('/').split('/')
+        try:
+            commit_idx = parts.index('commit')
+            stored_repo = f"{parts[commit_idx - 2]}/{parts[commit_idx - 1]}"
+        except:
+            stored_repo = "Unknown"
+        stored_head = None
+        stored_base = "main"
+    else:
+        stored_repo = st.session_state.get('last_repo_name', 'Unknown')
+        stored_head = st.session_state.get('last_head_branch', '')
+        stored_base = st.session_state.get('last_base_branch', 'main')
+    
+    # Parse title from content (handle error case where content is dict)
+    import re
+    pr_content = st.session_state.get('last_pr_content', '')
+    if isinstance(pr_content, dict):
+        # Error case - clear and skip PR creation
+        if 'error' in pr_content:
+            st.error(f"❌ Error in PR generation: {pr_content.get('error')}")
+            st.session_state.pop('last_pr_content', None)
+            st.stop()
+        pr_content = str(pr_content)
+    title_match = re.search(r'## Title\s*\n\*?\*?([^\n*]+)', pr_content)
+    title = title_match.group(1).strip() if title_match else "PR from commit"
+    
+    # Branch inputs (pre-fill if from branch comparison)
+    col1, col2 = st.columns(2)
+    with col1:
+        pr_head_branch = st.text_input(
+            "Source Branch (head)",
+            value=stored_head or "",
+            placeholder="your-feature-branch",
+            help="The branch containing your changes",
+            key="pr_create_head"
+        )
+    with col2:
+        pr_base_branch = st.text_input(
+            "Target Branch (base)",
+            value=stored_base,
+            help="The branch to merge into (e.g., main, master)",
+            key="pr_create_base"
+        )
+    
+    # Show preview
+    if pr_head_branch:
+        st.success(f"""
+        **📁 Repository:** `{stored_repo}`  
+        **🔀 Merge:** `{pr_head_branch}` → `{pr_base_branch}`  
+        **📝 Title:** {title}
+        """)
+        
+        if st.button("✅ Create PR on GitHub", type="primary", use_container_width=True):
+            try:
+                provider = GitHubProvider()
+                result = provider.create_pr(
+                    repo_name=stored_repo,
+                    title=title,
+                    body=pr_content,
+                    head=pr_head_branch,
+                    base=pr_base_branch
+                )
+                
+                if result.get("success"):
+                    st.balloons()
+                    action = result.get("action", "created")
+                    if action == "updated":
+                        st.success(f"✅ Existing PR updated successfully!")
+                    else:
+                        st.success(f"✅ PR created successfully!")
+                    st.markdown(f"### 🔗 [View PR #{result['pr_number']}]({result['pr_url']})")
+                    # Clear the stored content
+                    st.session_state.pop('last_pr_content', None)
+                    st.session_state.pop('last_commit_url', None)
+                    st.session_state.pop('last_repo_name', None)
+                    st.session_state.pop('last_head_branch', None)
+                    st.session_state.pop('last_base_branch', None)
+                else:
+                    st.error(f"❌ Failed to create PR: {result.get('error')}")
+            except Exception as e:
+                st.error(f"❌ Error creating PR: {str(e)}")
+    else:
+        st.warning("⚠️ Enter the source branch name to create a PR")
+

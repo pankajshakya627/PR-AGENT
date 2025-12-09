@@ -28,7 +28,8 @@ from src.prompts import (  # noqa: E402
     CODE_IMPROVEMENT_SYSTEM_PROMPT,
     PR_QUESTIONS_SYSTEM_PROMPT,
     CHANGELOG_SYSTEM_PROMPT,
-    TASK_DEPENDENCY_SYSTEM_PROMPT
+    TASK_DEPENDENCY_SYSTEM_PROMPT,
+    COMMIT_PR_GENERATOR_SYSTEM_PROMPT
 )
 
 mcp = FastMCP("pr-agent-system")
@@ -73,6 +74,11 @@ def changelog_prompt() -> str:
 def task_dependency_prompt() -> str:
     """Returns the system prompt for the Task Dependency Analyzer."""
     return TASK_DEPENDENCY_SYSTEM_PROMPT
+
+@mcp.prompt()
+def commit_pr_generator_prompt() -> str:
+    """Returns the system prompt for the Commit-Based PR Generator."""
+    return COMMIT_PR_GENERATOR_SYSTEM_PROMPT
 
 
 @mcp.tool()
@@ -190,6 +196,34 @@ async def update_changelog(pr_url: str) -> str:
     agent = ChangelogAgent()
     result = await agent.execute(state)
     return result.get("changelog_entry", "")
+
+@mcp.tool()
+async def generate_pr_from_commit(commit_url: str) -> Dict[str, Any]:
+    """
+    Generates a PR title and detailed description from a GitHub commit URL.
+    
+    Args:
+        commit_url: The URL of the commit (e.g., https://github.com/owner/repo/commit/abc123)
+        
+    Returns:
+        A dictionary containing the generated PR title and description in markdown format.
+    """
+    from src.agents.specialized import CommitPRGeneratorAgent
+    from src.state import PRAgentState
+    
+    state: PRAgentState = {
+        "pr_requirements": "",
+        "commit_url": commit_url,
+        "github_token": None,
+        "agent_results": {},
+        "execution_mode": "sequential",
+        "task_graph": {},
+        "final_pr": None,
+        "errors": []
+    }
+    agent = CommitPRGeneratorAgent()
+    result = await agent.execute(state)
+    return result.get("pr_from_commit", {})
 
 
 if __name__ == "__main__":

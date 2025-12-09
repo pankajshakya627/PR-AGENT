@@ -12,7 +12,9 @@ from src.prompts import (
     PR_DESCRIPTION_SYSTEM_PROMPT, PR_DESCRIPTION_USER_PROMPT,
     CODE_IMPROVEMENT_SYSTEM_PROMPT, CODE_IMPROVEMENT_USER_PROMPT,
     PR_QUESTIONS_SYSTEM_PROMPT, PR_QUESTIONS_USER_PROMPT,
-    CHANGELOG_SYSTEM_PROMPT, CHANGELOG_USER_PROMPT
+    CHANGELOG_SYSTEM_PROMPT, CHANGELOG_USER_PROMPT,
+    COMMIT_PR_GENERATOR_SYSTEM_PROMPT, COMMIT_PR_GENERATOR_USER_PROMPT,
+    BRANCH_PR_GENERATOR_SYSTEM_PROMPT, BRANCH_PR_GENERATOR_USER_PROMPT
 )
 
 class BaseLLMAgent(BaseAgent):
@@ -234,6 +236,122 @@ class ChangelogAgent(BaseLLMAgent):
 
     async def validate_input(self, context: PRAgentState) -> bool:
         return "pr_url" in context
+
+    def get_dependencies(self) -> List[str]:
+        return []
+
+class CommitPRGeneratorAgent(BaseLLMAgent):
+    """Agent that generates PR title and description from a commit URL."""
+    
+    async def _get_commit_diff_and_details(self, context: PRAgentState) -> tuple[str, Dict[str, Any]]:
+        """Fetch commit diff and details from GitHub."""
+        commit_url = context.get("commit_url")
+        if not commit_url:
+            raise ValueError("No commit URL provided")
+        
+        github = GitHubProvider(token=context.get("github_token"))
+        diff = github.get_commit_diff(commit_url)
+        details = github.get_commit_details(commit_url)
+        
+        if not diff:
+            raise ValueError("Empty diff")
+        return diff, details
+    
+    async def execute(self, context: PRAgentState) -> Dict[str, Any]:
+        try:
+            diff, details = await self._get_commit_diff_and_details(context)
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", COMMIT_PR_GENERATOR_SYSTEM_PROMPT),
+                ("user", COMMIT_PR_GENERATOR_USER_PROMPT)
+            ])
+
+            chain = prompt | self.llm
+            response = await chain.ainvoke({
+                "diff": diff[:20000],
+                "commit_message": details.get("message", ""),
+                "author": details.get("author", "Unknown"),
+                "files_changed": details.get("files_changed", 0),
+                "additions": details.get("additions", 0),
+                "deletions": details.get("deletions", 0)
+            })
+            
+            # Return raw markdown directly
+            return {"pr_from_commit": response.content}
+        except Exception as e:
+            return {"pr_from_commit": {"error": str(e)}}
+
+    async def validate_input(self, context: PRAgentState) -> bool:
+        return "commit_url" in context
+
+    def get_dependencies(self) -> List[str]:
+        return []
+
+class BranchPRGeneratorAgent(BaseLLMAgent):
+    """Agent that generates PR title and description by comparing two branches."""
+    
+    async def execute(self, context: PRAgentState) -> Dict[str, Any]:
+        try:
+            repo_name = context.get("repo_name")
+            head_branch = context.get("head_branch")
+            base_branch = context.get("base_branch", "main")
+            commit_limit = context.get("commit_limit")  # None or int
+            
+            if not repo_name or not head_branch:
+                raise ValueError("repo_name and head_branch are required")
+            
+            github = GitHubProvider(token=context.get("github_token"))
+            comparison = github.compare_branches(repo_name, base_branch, head_branch)
+            
+            # Get commits (optionally limited)
+            all_commits = comparison.get("commits", [])
+            if commit_limit and len(all_commits) > commit_limit:
+                # Take the last N commits (most recent)
+                commits_to_use = all_commits[-commit_limit:]
+                limit_note = f"(showing last {commit_limit} of {len(all_commits)} total)"
+            else:
+                commits_to_use = all_commits
+                limit_note = ""
+            
+            # Format commits list
+            commits_list = "\n".join([
+                f"- {c['sha']}: {c['message']} ({c['author']})"
+                for c in commits_to_use
+            ])
+            if limit_note:
+                commits_list = f"{limit_note}\n{commits_list}"
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", BRANCH_PR_GENERATOR_SYSTEM_PROMPT),
+                ("user", BRANCH_PR_GENERATOR_USER_PROMPT)
+            ])
+
+            chain = prompt | self.llm
+            response = await chain.ainvoke({
+                "head": head_branch,
+                "base": base_branch,
+                "total_commits": len(commits_to_use),
+                "commits_list": commits_list or "No commits found",
+                "diff": comparison.get("diff", "")[:20000],
+                "files_changed": comparison.get("files_changed", 0),
+                "additions": comparison.get("additions", 0),
+                "deletions": comparison.get("deletions", 0)
+            })
+            
+            return {
+                "pr_from_branch": response.content,
+                "branch_info": {
+                    "head": head_branch,
+                    "base": base_branch,
+                    "total_commits": comparison.get("total_commits", 0),
+                    "files_changed": comparison.get("files_changed", 0)
+                }
+            }
+        except Exception as e:
+            return {"pr_from_branch": {"error": str(e)}}
+
+    async def validate_input(self, context: PRAgentState) -> bool:
+        return "repo_name" in context and "head_branch" in context
 
     def get_dependencies(self) -> List[str]:
         return []
