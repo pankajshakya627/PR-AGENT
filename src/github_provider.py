@@ -213,3 +213,91 @@ class GitHubProvider:
                 pass
         
         return None
+
+    def compare_branches(self, repo_name: str, base: str, head: str) -> Dict[str, Any]:
+        """
+        Compare two branches and get the diff between them.
+        
+        Args:
+            repo_name: Repository in format 'owner/repo'
+            base: Base branch (target, e.g., 'main')
+            head: Head branch (source with changes, e.g., 'develop')
+            
+        Returns:
+            Dictionary with comparison details and combined diff
+        """
+        repo = self.client.get_repo(repo_name)
+        comparison = repo.compare(base, head)
+        
+        # Build combined diff from all files
+        diff_output = []
+        for file in comparison.files:
+            diff_output.append(f"--- {file.filename}")
+            diff_output.append(f"+++ {file.filename}")
+            if file.patch:
+                diff_output.append(file.patch)
+            else:
+                diff_output.append("(Binary file or large diff not shown)")
+            diff_output.append("\n")
+        
+        # Get commit messages
+        commit_messages = []
+        for commit in comparison.commits:
+            commit_messages.append({
+                "sha": commit.sha[:7],
+                "message": commit.commit.message.split('\n')[0],  # First line only
+                "author": commit.commit.author.name if commit.commit.author else "Unknown"
+            })
+        
+        return {
+            "base": base,
+            "head": head,
+            "ahead_by": comparison.ahead_by,
+            "behind_by": comparison.behind_by,
+            "total_commits": len(comparison.commits),
+            "files_changed": len(comparison.files),
+            "additions": sum(f.additions for f in comparison.files),
+            "deletions": sum(f.deletions for f in comparison.files),
+            "diff": "\n".join(diff_output),
+            "commits": commit_messages
+        }
+
+    def update_pr_description(self, repo_name: str, pr_number: int, 
+                               title: str = None, body: str = None) -> Dict[str, Any]:
+        """
+        Update an existing PR's title and/or body.
+        
+        Args:
+            repo_name: Repository in format 'owner/repo'
+            pr_number: PR number to update
+            title: New title (optional)
+            body: New body/description (optional)
+            
+        Returns:
+            Dictionary with update status
+        """
+        repo = self.client.get_repo(repo_name)
+        pr = repo.get_pull(pr_number)
+        
+        try:
+            update_args = {}
+            if title:
+                update_args['title'] = title
+            if body:
+                update_args['body'] = body
+            
+            if update_args:
+                pr.edit(**update_args)
+            
+            return {
+                "success": True,
+                "pr_number": pr.number,
+                "pr_url": pr.html_url,
+                "title": pr.title
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+

@@ -13,7 +13,8 @@ from src.prompts import (
     CODE_IMPROVEMENT_SYSTEM_PROMPT, CODE_IMPROVEMENT_USER_PROMPT,
     PR_QUESTIONS_SYSTEM_PROMPT, PR_QUESTIONS_USER_PROMPT,
     CHANGELOG_SYSTEM_PROMPT, CHANGELOG_USER_PROMPT,
-    COMMIT_PR_GENERATOR_SYSTEM_PROMPT, COMMIT_PR_GENERATOR_USER_PROMPT
+    COMMIT_PR_GENERATOR_SYSTEM_PROMPT, COMMIT_PR_GENERATOR_USER_PROMPT,
+    BRANCH_PR_GENERATOR_SYSTEM_PROMPT, BRANCH_PR_GENERATOR_USER_PROMPT
 )
 
 class BaseLLMAgent(BaseAgent):
@@ -282,6 +283,62 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
 
     async def validate_input(self, context: PRAgentState) -> bool:
         return "commit_url" in context
+
+    def get_dependencies(self) -> List[str]:
+        return []
+
+class BranchPRGeneratorAgent(BaseLLMAgent):
+    """Agent that generates PR title and description by comparing two branches."""
+    
+    async def execute(self, context: PRAgentState) -> Dict[str, Any]:
+        try:
+            repo_name = context.get("repo_name")
+            head_branch = context.get("head_branch")
+            base_branch = context.get("base_branch", "main")
+            
+            if not repo_name or not head_branch:
+                raise ValueError("repo_name and head_branch are required")
+            
+            github = GitHubProvider(token=context.get("github_token"))
+            comparison = github.compare_branches(repo_name, base_branch, head_branch)
+            
+            # Format commits list
+            commits_list = "\n".join([
+                f"- {c['sha']}: {c['message']} ({c['author']})"
+                for c in comparison.get("commits", [])
+            ])
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", BRANCH_PR_GENERATOR_SYSTEM_PROMPT),
+                ("user", BRANCH_PR_GENERATOR_USER_PROMPT)
+            ])
+
+            chain = prompt | self.llm
+            response = await chain.ainvoke({
+                "head": head_branch,
+                "base": base_branch,
+                "total_commits": comparison.get("total_commits", 0),
+                "commits_list": commits_list or "No commits found",
+                "diff": comparison.get("diff", "")[:20000],
+                "files_changed": comparison.get("files_changed", 0),
+                "additions": comparison.get("additions", 0),
+                "deletions": comparison.get("deletions", 0)
+            })
+            
+            return {
+                "pr_from_branch": response.content,
+                "branch_info": {
+                    "head": head_branch,
+                    "base": base_branch,
+                    "total_commits": comparison.get("total_commits", 0),
+                    "files_changed": comparison.get("files_changed", 0)
+                }
+            }
+        except Exception as e:
+            return {"pr_from_branch": {"error": str(e)}}
+
+    async def validate_input(self, context: PRAgentState) -> bool:
+        return "repo_name" in context and "head_branch" in context
 
     def get_dependencies(self) -> List[str]:
         return []

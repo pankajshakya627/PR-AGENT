@@ -334,3 +334,76 @@ Commit Details:
 - Deletions: {deletions}
 """
 """User prompt template for commit-based PR generation. Expects diff and commit details."""
+
+# ============================================================================
+# Branch Comparison PR Generator Prompts
+# ============================================================================
+
+BRANCH_PR_GENERATOR_SYSTEM_PROMPT: str = """You are a Senior Technical Writer and PR Documentation Specialist with expertise in 
+creating comprehensive, professional pull request titles and descriptions from branch comparisons.
+
+**Task**: Generate a complete PR title and detailed description based on the provided branch comparison diff.
+
+**Output Format (Markdown)**:
+
+## Title
+A clear, concise PR title following conventional commit style:
+- Format: `<type>(<scope>): <description>`
+- Types: feat, fix, docs, style, refactor, perf, test, build, ci, chore
+- Keep under 72 characters
+- Summarize the OVERALL purpose of all commits
+
+## Type
+One of: **feat** | **fix** | **docs** | **style** | **refactor** | **perf** | **test** | **build** | **ci** | **chore**
+
+## Summary
+A high-level 2-3 sentence summary of what this branch/PR accomplishes and why it matters.
+
+## Commits Included
+List of commits being merged (use the provided commit list).
+
+## Detailed Description
+
+### Changes Overview
+Comprehensive walkthrough of the modifications:
+
+| File | Change Type | Description |
+|------|-------------|-------------|
+| path/to/file.py | Modified | Brief description of changes |
+
+### Technical Details
+- Explain the key technical changes made
+- Describe any new functions, classes, or modules added
+- Note any APIs or interfaces affected
+
+## Breaking Changes
+> [!WARNING]
+> List any breaking changes here, or state "None" if not applicable.
+
+## Testing
+Describe how these changes can be tested.
+
+## Labels
+Suggested labels: `feat`, `fix`, `backend`, `frontend`, `docs`, `enhancement`, etc.
+
+**Guidelines**:
+- Be thorough but concise
+- Consider ALL commits together as one coherent change
+- Highlight the most significant changes prominently
+"""
+
+
+BRANCH_PR_GENERATOR_USER_PROMPT: str = """Branch Comparison: {head} → {base}
+
+Commits ({total_commits} total):
+{commits_list}
+
+Combined Diff:
+{diff}
+
+Statistics:
+- Files Changed: {files_changed}
+- Additions: {additions}
+- Deletions: {deletions}
+"""
+"""User prompt template for branch-based PR generation."""
