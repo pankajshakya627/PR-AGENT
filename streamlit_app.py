@@ -379,7 +379,8 @@ with st.sidebar:
         model = st.selectbox(
             "Model",
             options=[
-                'amazon/nova-2-lite-v1:free',
+                'xiaomi/mimo-v2-flash:free',
+                'mistralai/devstral-2512:free',
                 'google/gemini-2.0-flash-exp:free',
                 'x-ai/grok-beta'
             ],
@@ -643,20 +644,41 @@ if st.session_state.get('last_pr_content') and (st.session_state.get('last_commi
     title_match = re.search(r'## Title\s*\n\*?\*?([^\n*]+)', pr_content)
     title = title_match.group(1).strip() if title_match else "PR from commit"
     
-    # Branch inputs (pre-fill if from branch comparison)
+    # Fetch branches from repository for dropdown
+    try:
+        provider = GitHubProvider()
+        available_branches = provider.get_repo_branches(stored_repo)
+        # Sort with common defaults first
+        priority_branches = ['main', 'master', 'develop', 'dev']
+        sorted_branches = sorted(available_branches, 
+                                 key=lambda x: (x not in priority_branches, x))
+    except Exception as e:
+        sorted_branches = ['main', 'master', 'develop']  # Fallback
+        st.warning(f"⚠️ Could not fetch branches: {str(e)[:50]}...")
+    
+    # Branch selection dropdowns
     col1, col2 = st.columns(2)
     with col1:
-        pr_head_branch = st.text_input(
+        # Find default index for head branch
+        head_default = stored_head if stored_head in sorted_branches else (sorted_branches[0] if sorted_branches else "")
+        head_idx = sorted_branches.index(head_default) if head_default in sorted_branches else 0
+        
+        pr_head_branch = st.selectbox(
             "Source Branch (head)",
-            value=stored_head or "",
-            placeholder="your-feature-branch",
+            options=sorted_branches,
+            index=head_idx,
             help="The branch containing your changes",
             key="pr_create_head"
         )
     with col2:
-        pr_base_branch = st.text_input(
+        # Find default index for base branch  
+        base_default = stored_base if stored_base in sorted_branches else "main"
+        base_idx = sorted_branches.index(base_default) if base_default in sorted_branches else 0
+        
+        pr_base_branch = st.selectbox(
             "Target Branch (base)",
-            value=stored_base,
+            options=sorted_branches,
+            index=base_idx,
             help="The branch to merge into (e.g., main, master)",
             key="pr_create_base"
         )
