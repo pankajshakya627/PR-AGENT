@@ -17,7 +17,7 @@ LLM_CONFIG = {
     "anthropic_model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929"),
     
     # OpenRouter Configuration (for models like Grok, Llama, etc.)
-    "openrouter_model": os.getenv("OPENROUTER_MODEL", "amazon/nova-2-lite-v1:free"),
+    "openrouter_model": os.getenv("OPENROUTER_MODEL", "xiaomi/mimo-v2-flash:free"),
     "openrouter_base_url": "https://openrouter.ai/api/v1",
     
     # Groq Configuration (for fast Llama, Mixtral models)
