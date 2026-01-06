@@ -44,7 +44,7 @@ Examples:
   python cli.py --action all --pr-number 42 --repo myorg/myrepo --post-comment
   python cli.py --action describe --pr-url https://github.com/owner/repo/pull/123
   python cli.py --action generate --commit-url https://github.com/owner/repo/commit/abc123
-  python cli.py --action generate --commit-url URL --create-pr --head-branch feature-branch
+  python cli.py --action generate --commit-url https://github.com/owner/repo/commit/abc123 --create-pr --head-branch feature-branch
   
   # With provider/model selection (useful for GitHub Actions):
   python cli.py --provider groq --model llama-3.1-8b-instant --action review --pr-number 123 --repo owner/repo
@@ -148,12 +148,14 @@ Examples:
 
 def setup_provider_from_args(args):
     """Set environment variables from CLI arguments if provided."""
+    # Determine the effective provider (explicit arg > env var > default)
+    effective_provider = args.provider or os.getenv('LLM_PROVIDER', 'groq')
+    
     if args.provider:
         os.environ['LLM_PROVIDER'] = args.provider
         
     if args.model:
         # Set the appropriate model environment variable based on provider
-        provider = args.provider or os.getenv('LLM_PROVIDER', 'groq')
         model_env_map = {
             'groq': 'GROQ_MODEL',
             'openai': 'OPENAI_MODEL',
@@ -161,8 +163,14 @@ def setup_provider_from_args(args):
             'openrouter': 'OPENROUTER_MODEL',
             'local': 'LOCAL_LLM_MODEL'
         }
-        env_key = model_env_map.get(provider, 'GROQ_MODEL')
+        env_key = model_env_map.get(effective_provider, 'GROQ_MODEL')
         os.environ[env_key] = args.model
+        
+        # Log which provider the model is being set for
+        if args.verbose:
+            if not args.provider:
+                print(f"ℹ️  Using provider from environment: {effective_provider}")
+            print(f"✅ Model set to: {args.model} (for {effective_provider})")
 
 
 def extract_pr_info(args):

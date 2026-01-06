@@ -263,12 +263,17 @@ Providers:
     args = parser.parse_args()
     
     # Apply provider/model from CLI args
+    # Determine effective provider first
+    effective_provider = args.provider or os.getenv('LLM_PROVIDER', 'groq')
+    
     if args.provider:
         os.environ['LLM_PROVIDER'] = args.provider
         print(f"✅ Provider set to: {args.provider}")
+    elif args.model:
+        # If only model is passed, show which provider it's being set for
+        print(f"ℹ️  Using provider from environment: {effective_provider}")
         
     if args.model:
-        provider = args.provider or os.getenv('LLM_PROVIDER', 'groq')
         model_env_map = {
             'groq': 'GROQ_MODEL',
             'openai': 'OPENAI_MODEL',
@@ -276,7 +281,7 @@ Providers:
             'openrouter': 'OPENROUTER_MODEL',
             'local': 'LOCAL_LLM_MODEL'
         }
-        env_key = model_env_map.get(provider, 'GROQ_MODEL')
+        env_key = model_env_map.get(effective_provider, 'GROQ_MODEL')
         os.environ[env_key] = args.model
         print(f"✅ Model set to: {args.model}")
     
