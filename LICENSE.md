@@ -1,62 +1,63 @@
-# PR-Agent Proprietary License
+# PR-Agent License
 
-Copyright (c) 2024 Pankaj Shakya. All Rights Reserved.
+Copyright (c) 2025 Pankaj Shakya
 
 ## Terms of Use
 
-### 1. Permitted Use (With Authorization)
+### 1. Free Use ✅
 
-This software may only be used if you have received **explicit written permission** from the copyright holder (Pankaj Shakya).
+You are **free to use** this software for:
 
-Authorized uses include:
-- Using the portable workflow in your own repositories
-- Running PR-Agent for code review purposes
-- Integration with your CI/CD pipelines
+- Personal projects
+- Educational purposes
+- Open source projects
+- Internal company use
+- Code review and analysis
+- CI/CD integration with GitHub Actions
 
-### 2. Prohibited Without Permission
+### 2. Contributions Welcome ✅
 
-Without authorization, you may NOT:
-- Copy, modify, or distribute this software
-- Create derivative works
-- Sell or sublicense this software
-- Use for commercial purposes
-- Host as a public service
+- Fork and contribute via Pull Requests
+- Report issues and suggest improvements
+- Share feedback and ideas
 
-### 3. How to Get Permission
+### 3. Attribution Required
 
-To request permission:
-1. Open an issue in this repository
-2. Or contact: [your-email@example.com]
-3. Describe your intended use case
+When using this software, please:
 
-### 4. Attribution
-
-If authorized, you must:
 - Keep this license file intact
-- Credit "PR-Agent by Pankaj Shakya" in your documentation
-- Not remove copyright notices
+- Credit "PR-Agent by Pankaj Shakya" where reasonable
+- Link back to the original repository when sharing
+
+### 4. Restrictions ❌
+
+You may NOT without written permission:
+
+- Sell this software as a paid product
+- Host as a commercial SaaS service
+- Remove or alter copyright notices
+- Claim ownership of the original work
 
 ### 5. No Warranty
 
-THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
-
-### 6. Termination
-
-Permission may be revoked at any time if terms are violated.
+THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
 
 ---
 
 ## Quick Reference
 
-| Action | Allowed? |
-|--------|----------|
-| Use portable workflow | ✅ With secrets only |
-| Clone for personal review | ✅ |
-| Redistribute code | ❌ Without permission |
-| Modify and publish | ❌ Without permission |
-| Commercial use | ❌ Without permission |
-| Fork and contribute | ✅ PRs welcome |
+| Action                  | Allowed?         |
+| ----------------------- | ---------------- |
+| Personal use            | ✅ Free          |
+| Educational use         | ✅ Free          |
+| Open source projects    | ✅ Free          |
+| Internal company use    | ✅ Free          |
+| Use portable workflow   | ✅ Free          |
+| Fork and contribute     | ✅ PRs welcome   |
+| Modify for personal use | ✅ Free          |
+| Commercial SaaS         | ❌ Contact owner |
+| Resell as product       | ❌ Contact owner |
 
 ---
 
-For questions, open an issue or contact the owner.
+**Questions?** Open an issue or contact the owner.
