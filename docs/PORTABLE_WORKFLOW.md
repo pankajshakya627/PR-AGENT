@@ -107,7 +107,7 @@ PRs will be automatically reviewed when opened or updated.
 
 ### OpenRouter
 
-- `amazon/nova-2-lite-v1:free`
+- `xiaomi/mimo-v2-flash:free` (default)
 - `google/gemini-2.0-flash-exp:free`
 
 ### OpenAI
@@ -180,12 +180,12 @@ env:
 
 ## Cost Estimation
 
-| Provider   | Model                      | Est. Cost/Review |
-| ---------- | -------------------------- | ---------------- |
-| Groq       | llama-3.1-8b-instant       | Free             |
-| OpenRouter | amazon/nova-2-lite-v1:free | Free             |
-| OpenAI     | gpt-4o-mini                | ~$0.01-0.05      |
-| Anthropic  | claude-sonnet              | ~$0.05-0.20      |
+| Provider   | Model                     | Est. Cost/Review |
+| ---------- | ------------------------- | ---------------- |
+| Groq       | llama-3.1-8b-instant      | Free             |
+| OpenRouter | xiaomi/mimo-v2-flash:free | Free             |
+| OpenAI     | gpt-4o-mini               | ~$0.01-0.05      |
+| Anthropic  | claude-sonnet             | ~$0.05-0.20      |
 
 ---
 

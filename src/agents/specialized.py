@@ -63,7 +63,7 @@ class BaseLLMAgent(BaseAgent):
             if not api_key:
                 raise ValueError("OPENROUTER_API_KEY not set")
             from langchain_openai import ChatOpenAI
-            model = config["openrouter_model"] or "amazon/nova-2-lite-v1:free"
+            model = config["openrouter_model"] or "xiaomi/mimo-v2-flash:free"
             return ChatOpenAI(
                 model=model,
                 base_url=config["openrouter_base_url"],

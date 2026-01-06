@@ -51,14 +51,41 @@ logger = logging.getLogger(__name__)
 
 def get_llm_config() -> Dict[str, Any]:
     """
-    Returns the LLM configuration.
+    Returns the LLM configuration with FRESH environment variables.
+    
+    This reads env vars each time to support dynamic updates from Streamlit UI.
     
     Auto-detects provider if not explicitly set:
     - If ANTHROPIC_API_KEY is set but OPENAI_API_KEY is not → use anthropic
     - If LOCAL_LLM_BASE_URL is set → use local
     - Otherwise → use openai (default)
     """
-    config = LLM_CONFIG.copy()
+    # Read FRESH values from environment each time
+    config = {
+        "provider": os.getenv("LLM_PROVIDER", "groq"),
+        
+        # OpenAI Configuration
+        "openai_model": os.getenv("OPENAI_MODEL", "gpt-4.1-mini"),
+        
+        # Anthropic Configuration  
+        "anthropic_model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929"),
+        
+        # OpenRouter Configuration
+        "openrouter_model": os.getenv("OPENROUTER_MODEL", "xiaomi/mimo-v2-flash:free"),
+        "openrouter_base_url": "https://openrouter.ai/api/v1",
+        
+        # Groq Configuration
+        "groq_model": os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        "groq_base_url": "https://api.groq.com/openai/v1",
+        
+        # Local LLM Configuration
+        "local_base_url": os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:12434/engines/llama.cpp/v1"),
+        "local_model": os.getenv("LOCAL_LLM_MODEL", "ai/llama3.2:latest"),
+        
+        # Shared Settings
+        "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
+        "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "8000")),
+    }
     
     # Check for conflicting API keys
     api_keys_present = []
@@ -83,7 +110,7 @@ def get_llm_config() -> Dict[str, Any]:
             config["provider"] = "local"
             logger.info("ℹ️  Auto-detected local LLM base URL, using provider: local")
     
-    logger.info(f"🤖 Using LLM provider: {config['provider']}")
+    logger.info(f"🤖 Using LLM provider: {config['provider']} with model: {config.get(config['provider'] + '_model', 'N/A')}")
     
     return config
 

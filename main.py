@@ -1,4 +1,5 @@
 """PR-Agent MCP Server - Provides tools for PR analysis via FastMCP."""
+import os
 from typing import Dict, Any, List
 
 from dotenv import load_dotenv
@@ -225,6 +226,58 @@ async def generate_pr_from_commit(commit_url: str) -> Dict[str, Any]:
     result = await agent.execute(state)
     return result.get("pr_from_commit", {})
 
-
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="PR-Agent MCP Server - FastMCP-based PR analysis tools",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python main.py                                    # Run with defaults
+  python main.py --provider groq --model llama-3.1-8b-instant
+  python main.py --provider openrouter --model xiaomi/mimo-v2-flash:free
+  python main.py --provider anthropic --model claude-sonnet-4-5-20250929
+  
+Providers:
+  groq        - Fast inference with Llama/Mixtral models (recommended, free)
+  openrouter  - Access to many models including Gemini, Grok, etc.
+  openai      - OpenAI GPT models
+  anthropic   - Claude models
+  local       - Local LLM (Ollama, LM Studio, etc.)
+        """
+    )
+    
+    parser.add_argument(
+        "--provider",
+        choices=["groq", "openai", "anthropic", "openrouter", "local"],
+        help="LLM provider to use (default: from LLM_PROVIDER env var or 'groq')"
+    )
+    
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="Model name for the selected provider"
+    )
+    
+    args = parser.parse_args()
+    
+    # Apply provider/model from CLI args
+    if args.provider:
+        os.environ['LLM_PROVIDER'] = args.provider
+        print(f"✅ Provider set to: {args.provider}")
+        
+    if args.model:
+        provider = args.provider or os.getenv('LLM_PROVIDER', 'groq')
+        model_env_map = {
+            'groq': 'GROQ_MODEL',
+            'openai': 'OPENAI_MODEL',
+            'anthropic': 'ANTHROPIC_MODEL',
+            'openrouter': 'OPENROUTER_MODEL',
+            'local': 'LOCAL_LLM_MODEL'
+        }
+        env_key = model_env_map.get(provider, 'GROQ_MODEL')
+        os.environ[env_key] = args.model
+        print(f"✅ Model set to: {args.model}")
+    
     mcp.run()

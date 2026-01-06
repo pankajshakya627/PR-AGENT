@@ -44,10 +44,28 @@ Examples:
   python cli.py --action all --pr-number 42 --repo myorg/myrepo --post-comment
   python cli.py --action describe --pr-url https://github.com/owner/repo/pull/123
   python cli.py --action generate --commit-url https://github.com/owner/repo/commit/abc123
-  python cli.py --action generate --commit-url https://github.com/owner/repo/commit/abc123 --create-pr --head-branch feature-branch
+  python cli.py --action generate --commit-url URL --create-pr --head-branch feature-branch
+  
+  # With provider/model selection (useful for GitHub Actions):
+  python cli.py --provider groq --model llama-3.1-8b-instant --action review --pr-number 123 --repo owner/repo
+  python cli.py --provider openrouter --model xiaomi/mimo-v2-flash:free --action review ...
         """
     )
     
+    # ============== Provider/Model Selection ==============
+    parser.add_argument(
+        "--provider",
+        choices=["groq", "openai", "anthropic", "openrouter", "local"],
+        help="LLM provider to use (default: from LLM_PROVIDER env var or 'groq')"
+    )
+    
+    parser.add_argument(
+        "--model",
+        type=str,
+        help="Model name for the selected provider (e.g., llama-3.1-8b-instant, gpt-4o-mini, xiaomi/mimo-v2-flash:free)"
+    )
+    
+    # ============== Action Selection ==============
     parser.add_argument(
         "--action",
         choices=["review", "describe", "improve", "changelog", "generate", "all"],
@@ -126,6 +144,25 @@ Examples:
     )
     
     return parser.parse_args()
+
+
+def setup_provider_from_args(args):
+    """Set environment variables from CLI arguments if provided."""
+    if args.provider:
+        os.environ['LLM_PROVIDER'] = args.provider
+        
+    if args.model:
+        # Set the appropriate model environment variable based on provider
+        provider = args.provider or os.getenv('LLM_PROVIDER', 'groq')
+        model_env_map = {
+            'groq': 'GROQ_MODEL',
+            'openai': 'OPENAI_MODEL',
+            'anthropic': 'ANTHROPIC_MODEL',
+            'openrouter': 'OPENROUTER_MODEL',
+            'local': 'LOCAL_LLM_MODEL'
+        }
+        env_key = model_env_map.get(provider, 'GROQ_MODEL')
+        os.environ[env_key] = args.model
 
 
 def extract_pr_info(args):
@@ -308,6 +345,9 @@ def format_results(results: dict, output_format: str = "markdown") -> str:
 async def main():
     """Main entry point."""
     args = parse_args()
+    
+    # Apply provider/model from CLI args before any LLM operations
+    setup_provider_from_args(args)
     
     try:
         # Handle generate action (commit-based) separately

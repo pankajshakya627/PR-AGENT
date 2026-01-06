@@ -323,9 +323,15 @@ with st.sidebar:
         if api_key:
             os.environ['GROQ_API_KEY'] = api_key
             
+        groq_models = ['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768']
+        # Use CLI model as default if provided and valid
+        cli_model = st.session_state.get('cli_model')
+        default_groq_model = os.getenv('GROQ_MODEL', 'llama-3.1-8b-instant')
+        groq_index = groq_models.index(default_groq_model) if default_groq_model in groq_models else 0
         model = st.selectbox(
             "Model",
-            options=['llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768'],
+            options=groq_models,
+            index=groq_index,
             help="Groq model to use"
         )
         os.environ['GROQ_MODEL'] = model
@@ -376,13 +382,27 @@ with st.sidebar:
         if api_key:
             os.environ['OPENROUTER_API_KEY'] = api_key
             
+        openrouter_models = [
+            'xiaomi/mimo-v2-flash:free',
+            'mistralai/devstral-2512:free',
+            'google/gemini-2.0-flash-exp:free',
+            'x-ai/grok-beta'
+        ]
+        # Use CLI model as default if provided and valid
+        default_or_model = os.getenv('OPENROUTER_MODEL', 'xiaomi/mimo-v2-flash:free')
+        or_index = openrouter_models.index(default_or_model) if default_or_model in openrouter_models else 0
         model = st.selectbox(
             "Model",
+<<<<<<< Updated upstream
             options=[
                 'amazon/nova-2-lite-v1:free',
                 'google/gemini-2.0-flash-exp:free',
                 'x-ai/grok-beta'
             ],
+=======
+            options=openrouter_models,
+            index=or_index,
+>>>>>>> Stashed changes
             help="OpenRouter model to use"
         )
         os.environ['OPENROUTER_MODEL'] = model

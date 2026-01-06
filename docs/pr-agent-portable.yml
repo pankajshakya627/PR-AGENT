@@ -41,7 +41,7 @@ on:
         options:
           - llama-3.1-8b-instant
           - llama-3.3-70b-versatile
-          - amazon/nova-2-lite-v1:free
+          - xiaomi/mimo-v2-flash:free
           - gpt-4o-mini
           - claude-sonnet-4-5-20250929
 
@@ -107,19 +107,19 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          LLM_PROVIDER: ${{ inputs.provider || 'groq' }}
-          GROQ_MODEL: ${{ inputs.model || 'llama-3.1-8b-instant' }}
-          OPENROUTER_MODEL: ${{ inputs.model || '' }}
-          OPENAI_MODEL: ${{ inputs.model || '' }}
-          ANTHROPIC_MODEL: ${{ inputs.model || '' }}
         run: |
-          echo "🤖 Using provider: $LLM_PROVIDER"
-          echo "📦 Using model: ${{ inputs.model || 'default' }}"
+          PROVIDER="${{ inputs.provider || 'groq' }}"
+          MODEL="${{ inputs.model || 'llama-3.1-8b-instant' }}"
+          echo "🤖 Using provider: $PROVIDER"
+          echo "📦 Using model: $MODEL"
           python cli.py \
+            --provider "$PROVIDER" \
+            --model "$MODEL" \
             --action ${{ steps.action.outputs.action }} \
             --pr-number ${{ steps.pr.outputs.number }} \
             --repo ${{ github.repository }} \
-            --post-comment
+            --post-comment \
+            --verbose
       
       - name: Handle Errors
         if: failure()
