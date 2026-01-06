@@ -393,16 +393,8 @@ with st.sidebar:
         or_index = openrouter_models.index(default_or_model) if default_or_model in openrouter_models else 0
         model = st.selectbox(
             "Model",
-<<<<<<< Updated upstream
-            options=[
-                'amazon/nova-2-lite-v1:free',
-                'google/gemini-2.0-flash-exp:free',
-                'x-ai/grok-beta'
-            ],
-=======
             options=openrouter_models,
             index=or_index,
->>>>>>> Stashed changes
             help="OpenRouter model to use"
         )
         os.environ['OPENROUTER_MODEL'] = model
