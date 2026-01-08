@@ -99,7 +99,22 @@ pr-agent/
 
 - **Architecture:** The Streamlit app imports agent classes (e.g., `CodeReviewAgent`) directly from `src.agents`.
 - **Flow:** User Input → Streamlit App → `Agent.execute()` → LLM → Streamlit UI
-- **Auth:** Uses `streamlit-authenticator` with bcrypt encryption for secure access.
+
+#### 🔐 Authentication Features
+
+| Feature             | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| **Login**           | Secure login with username/password using bcrypt hashing       |
+| **Registration**    | New user registration with email and password validation       |
+| **Forgot Password** | Email verification code flow for secure password reset         |
+| **Change Password** | Logged-in users can update their password via sidebar expander |
+
+**Security:**
+
+- Passwords hashed using `bcrypt` with salt rounds (12)
+- Session managed via encrypted cookies (configurable expiry: 30 days default)
+- User credentials stored in `config/auth_config.yaml`
+- Uses `streamlit-authenticator` library for secure authentication
 
 ### 2. 🔌 FastMCP Server (Assistant Mode)
 
