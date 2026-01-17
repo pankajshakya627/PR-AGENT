@@ -7,7 +7,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from src.state import PRAgentState
 from src.analyzer import TaskDependencyAnalyzer
-from src.agents.specialized import CodeReviewAgent, TestingAgent, DocumentationAgent, SecurityAgent
+from src.agents.specialized import CodeReviewAgent, TestingAgent, DocumentationAgent, SecurityAgent, PerformanceAgent
 from src.github_provider import GitHubProvider
 from src.utils import format_file_tree
 from src.config import AGENT_CONFIG
@@ -26,6 +26,7 @@ agents = {
     "testing": TestingAgent(),
     "documentation": DocumentationAgent(),
     "security": SecurityAgent(),
+    "performance": PerformanceAgent(),
 }
 
 # ============================================================================

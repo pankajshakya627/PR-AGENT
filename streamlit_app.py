@@ -2,11 +2,27 @@
 Streamlit UI for PR-Agent MCP Server
 
 A web interface to interact with the PR-Agent FastMCP server.
-Features secure login/registration with streamlit-authenticator.
+
+Authentication Features:
+    - **Login**: Secure login with username/password using bcrypt hashing
+    - **Registration**: New user registration with email and password validation
+    - **Forgot Password**: Email-based verification code flow for secure password reset
+    - **Change Password**: Logged-in users can update their password via sidebar
+
+Configuration:
+    - User credentials stored in config/auth_config.yaml
+    - Cookie-based session management with configurable expiry
+    - Uses streamlit-authenticator library for secure authentication
+
+Security Notes:
+    - Passwords are hashed using bcrypt (salt rounds: 12)
+    - Session cookies are encrypted with a secret key
+    - Forgot password displays new password on screen (no email delivery configured)
 """
 
 import streamlit as st
 import streamlit_authenticator as stauth
+
 import bcrypt
 import yaml
 from yaml.loader import SafeLoader
@@ -159,6 +175,23 @@ st.markdown("""
         font-size: 2rem;
         margin-bottom: 0.5rem;
     }
+    
+    /* Password display styling */
+    .password-box {
+        padding: 1.5rem;
+        border-radius: 10px;
+        background: linear-gradient(135deg, rgba(124, 58, 237, 0.1), rgba(0, 212, 255, 0.1));
+        border: 2px dashed rgba(124, 58, 237, 0.4);
+        text-align: center;
+        margin: 1rem 0;
+    }
+    
+    .password-box code {
+        font-size: 1.4rem;
+        font-weight: 600;
+        letter-spacing: 2px;
+        color: #7c3aed;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -188,8 +221,8 @@ def show_auth_page():
         </div>
         """, unsafe_allow_html=True)
         
-        # Tabs for Login and Register
-        tab1, tab2 = st.tabs(["🔐 Login", "📝 Register"])
+        # Tabs for Login, Register, and Forgot Password
+        tab1, tab2, tab3 = st.tabs(["🔐 Login", "📝 Register", "🔑 Forgot Password"])
         
         with tab1:
             # Login form
@@ -254,6 +287,155 @@ def show_auth_page():
                         save_config(config)
                         st.success("✅ Account created successfully! Please login.")
                         st.balloons()
+        
+        with tab3:
+            # Forgot Password with Email Verification
+            st.markdown("### 🔑 Reset Your Password")
+            
+            # Import email utilities
+            from src.email_utils import generate_verification_code, send_verification_email, is_code_valid
+            from datetime import datetime
+            
+            # Initialize session state for password reset flow
+            if 'reset_step' not in st.session_state:
+                st.session_state.reset_step = 1
+            if 'reset_username' not in st.session_state:
+                st.session_state.reset_username = None
+            if 'reset_email' not in st.session_state:
+                st.session_state.reset_email = None
+            if 'reset_code' not in st.session_state:
+                st.session_state.reset_code = None
+            if 'reset_code_time' not in st.session_state:
+                st.session_state.reset_code_time = None
+            
+            # Step indicator
+            step = st.session_state.reset_step
+            st.markdown(f"**Step {step} of 3**")
+            st.progress(step / 3)
+            
+            # ========== STEP 1: Enter Username ==========
+            if step == 1:
+                st.markdown("Enter your username to receive a verification code via email.")
+                
+                with st.form("reset_step1", clear_on_submit=False):
+                    reset_username = st.text_input("👤 Username", placeholder="Enter your username")
+                    submit_step1 = st.form_submit_button("📧 Send Verification Code", use_container_width=True)
+                    
+                    if submit_step1:
+                        if not reset_username:
+                            st.error("❌ Please enter your username")
+                        elif reset_username not in config['credentials']['usernames']:
+                            st.error("❌ Username not found. Please check and try again.")
+                        else:
+                            # Get user email
+                            user_data = config['credentials']['usernames'][reset_username]
+                            user_email = user_data.get('email', '')
+                            
+                            if not user_email:
+                                st.error("❌ No email associated with this account.")
+                            else:
+                                # Generate and send verification code
+                                code = generate_verification_code()
+                                
+                                try:
+                                    success = send_verification_email(user_email, code, reset_username)
+                                    
+                                    if success:
+                                        # Store in session state
+                                        st.session_state.reset_username = reset_username
+                                        st.session_state.reset_email = user_email
+                                        st.session_state.reset_code = code
+                                        st.session_state.reset_code_time = datetime.now()
+                                        st.session_state.reset_step = 2
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to send email. Please try again later.")
+                                except ValueError as e:
+                                    st.error(f"❌ Email configuration error: {e}")
+                                    st.info("💡 Please configure SMTP settings in your .env file.")
+            
+            # ========== STEP 2: Enter Verification Code ==========
+            elif step == 2:
+                # Mask email for display
+                email = st.session_state.reset_email or ""
+                masked_email = email[:3] + "***" + email[email.find("@"):] if "@" in email else email
+                
+                st.success(f"✅ Verification code sent to **{masked_email}**")
+                st.info("⏰ Code expires in 5 minutes. Check your spam folder if not received.")
+                
+                with st.form("reset_step2", clear_on_submit=False):
+                    entered_code = st.text_input("🔢 Verification Code", placeholder="Enter 6-digit code", max_chars=6)
+                    submit_step2 = st.form_submit_button("✅ Verify Code", use_container_width=True)
+                    
+                    if submit_step2:
+                        if not entered_code:
+                            st.error("❌ Please enter the verification code")
+                        else:
+                            is_valid, error_msg = is_code_valid(
+                                st.session_state.reset_code,
+                                st.session_state.reset_code_time,
+                                entered_code
+                            )
+                            
+                            if is_valid:
+                                st.session_state.reset_step = 3
+                                st.rerun()
+                            else:
+                                st.error(f"❌ {error_msg}")
+                
+                # Back button
+                if st.button("← Back to Step 1"):
+                    st.session_state.reset_step = 1
+                    st.session_state.reset_code = None
+                    st.rerun()
+            
+            # ========== STEP 3: Set New Password ==========
+            elif step == 3:
+                st.success("✅ Code verified! Now set your new password.")
+                
+                with st.form("reset_step3", clear_on_submit=False):
+                    new_password = st.text_input("🔒 New Password", type="password", placeholder="Min 8 characters")
+                    confirm_password = st.text_input("🔒 Confirm Password", type="password", placeholder="Repeat password")
+                    submit_step3 = st.form_submit_button("🔐 Update Password", use_container_width=True)
+                    
+                    if submit_step3:
+                        errors = []
+                        
+                        if len(new_password) < 8:
+                            errors.append("Password must be at least 8 characters")
+                        if not any(c.isupper() for c in new_password):
+                            errors.append("Password must contain at least one uppercase letter")
+                        if not any(c.islower() for c in new_password):
+                            errors.append("Password must contain at least one lowercase letter")
+                        if not any(c.isdigit() for c in new_password):
+                            errors.append("Password must contain at least one number")
+                        if new_password != confirm_password:
+                            errors.append("Passwords do not match")
+                        
+                        if errors:
+                            for error in errors:
+                                st.error(f"❌ {error}")
+                        else:
+                            # Update password
+                            username = st.session_state.reset_username
+                            hashed_pw = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+                            config['credentials']['usernames'][username]['password'] = hashed_pw
+                            save_config(config)
+                            
+                            # Clear session state
+                            st.session_state.reset_step = 1
+                            st.session_state.reset_username = None
+                            st.session_state.reset_email = None
+                            st.session_state.reset_code = None
+                            st.session_state.reset_code_time = None
+                            
+                            st.success("🎉 Password updated successfully! You can now login with your new password.")
+                            st.balloons()
+                
+                # Back button
+                if st.button("← Back to Step 2"):
+                    st.session_state.reset_step = 2
+                    st.rerun()
 
 
 # ============== AUTHENTICATION CHECK ==============
@@ -270,6 +452,7 @@ from src.agents.specialized import (
     PRQuestionsAgent, ChangelogAgent, CommitPRGeneratorAgent, BranchPRGeneratorAgent
 )
 from src.github_provider import GitHubProvider
+from src.github_commenter import GitHubCommenter
 
 # Initialize session state
 if 'provider' not in st.session_state:
@@ -290,7 +473,23 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     # Logout button
-    authenticator.logout('🚪 Logout', 'sidebar', key='logout')
+    authenticator.logout('🚪 Logout', 'sidebar', key='sidebar_logout_btn')
+    
+    # Password Reset for logged-in users
+    with st.expander("🔐 Change Password"):
+        st.markdown("Update your account password.")
+        try:
+            if authenticator.reset_password(
+                st.session_state['username'],
+                location='main',
+                key='reset_password',
+                clear_on_submit=True
+            ):
+                save_config(config)
+                st.success("✅ Password changed successfully!")
+                st.balloons()
+        except Exception as e:
+            st.error(f"Error: {e}")
     
     st.divider()
     
@@ -588,6 +787,13 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                     st.session_state['last_head_branch'] = head_branch
                     st.session_state['last_base_branch'] = base_branch
                 
+                # Store code review result for posting to GitHub
+                if "Code Review" in selected_tool:
+                    review_content = result.get('code_review') or result.get('review') or result.get('content', '')
+                    if review_content:
+                        st.session_state['last_code_review'] = review_content
+                        st.session_state['last_review_pr_url'] = pr_url
+                
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
 
@@ -619,6 +825,78 @@ if st.session_state.results:
                 st.markdown(content)
             else:
                 st.markdown(str(result))
+
+# Post Code Review to GitHub Section
+if st.session_state.get('last_code_review') and st.session_state.get('last_review_pr_url'):
+    st.divider()
+    st.subheader("💬 Post Review to GitHub")
+    
+    # Parse PR URL to get repo and PR number
+    review_pr_url = st.session_state.get('last_review_pr_url', '')
+    try:
+        parts = review_pr_url.rstrip('/').split('/')
+        pr_idx = parts.index('pull')
+        review_repo = f"{parts[pr_idx - 2]}/{parts[pr_idx - 1]}"
+        review_pr_number = int(parts[pr_idx + 1])
+        
+        st.info(f"""
+        📁 **Repository:** `{review_repo}`  
+        🔢 **PR Number:** `#{review_pr_number}`
+        """)
+        
+        # Preview the comment
+        with st.expander("📝 Preview Comment", expanded=False):
+            st.markdown(st.session_state.get('last_code_review', ''))
+        
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            if st.button("💬 Post as PR Comment", type="primary", use_container_width=True):
+                try:
+                    commenter = GitHubCommenter()
+                    
+                    # Format the comment with PR-Agent branding
+                    comment_body = f"""## 🤖 PR-Agent Code Review
+
+{st.session_state.get('last_code_review', '')}
+
+---
+*Generated by [PR-Agent](https://github.com/pankajshakya627/PR-AGENT) | Powered by AI*
+"""
+                    
+                    success = commenter.post_comment(
+                        repo=review_repo,
+                        pr_number=review_pr_number,
+                        body=comment_body
+                    )
+                    
+                    if success:
+                        st.balloons()
+                        st.success(f"✅ Code review posted to PR #{review_pr_number}!")
+                        st.markdown(f"[🔗 View on GitHub]({review_pr_url})")
+                        # Clear the stored review
+                        st.session_state.pop('last_code_review', None)
+                        st.session_state.pop('last_review_pr_url', None)
+                    else:
+                        st.error("❌ Failed to post comment. Check your GitHub token permissions.")
+                except ValueError as e:
+                    st.error(f"❌ GitHub token not configured: {e}")
+                    st.info("💡 Set GITHUB_TOKEN in your .env file with repo write access.")
+                except Exception as e:
+                    st.error(f"❌ Error posting comment: {str(e)}")
+        
+        with col2:
+            if st.button("🗑️ Discard", use_container_width=True):
+                st.session_state.pop('last_code_review', None)
+                st.session_state.pop('last_review_pr_url', None)
+                st.rerun()
+                
+    except (ValueError, IndexError):
+        st.error("❌ Could not parse PR URL. Please ensure it's a valid GitHub PR URL.")
+        if st.button("🗑️ Clear"):
+            st.session_state.pop('last_code_review', None)
+            st.session_state.pop('last_review_pr_url', None)
+            st.rerun()
 
 # PR Creation Section - shown AFTER generating PR from commit or branches
 if st.session_state.get('last_pr_content') and (st.session_state.get('last_commit_url') or st.session_state.get('last_repo_name')):

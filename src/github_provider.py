@@ -341,3 +341,38 @@ class GitHubProvider:
                 "error": str(e)
             }
 
+    def get_pr_files_content(self, pr_url: str) -> Dict[str, str]:
+        """
+        Fetches the content of files changed in the PR.
+        
+        Args:
+            pr_url: URL of the Pull Request
+            
+        Returns:
+            Dictionary mapping filename to its content.
+        """
+        repo_name, pr_number = self._get_repo_and_pr_number(pr_url)
+        repo = self.client.get_repo(repo_name)
+        pr = repo.get_pull(pr_number)
+        
+        files_content = {}
+        # Get changed files
+        files = pr.get_files()
+        
+        for file in files:
+            # Skip deletions and binary files
+            if file.status == "removed" or not file.filename.endswith(('.py', '.js', '.ts', '.md', '.html', '.css', '.json', '.yml', '.yaml')):
+                continue
+                
+            try:
+                # Get file content from the head branch (version in the PR)
+                content_file = repo.get_contents(file.filename, ref=pr.head.sha)
+                if content_file.encoding == 'base64':
+                    import base64
+                    files_content[file.filename] = base64.b64decode(content_file.content).decode('utf-8')
+                else:
+                    files_content[file.filename] = content_file.decoded_content.decode('utf-8')
+            except Exception as e:
+                print(f"Failed to fetch content for {file.filename}: {e}")
+                
+        return files_content

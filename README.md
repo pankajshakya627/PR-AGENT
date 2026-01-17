@@ -5,50 +5,33 @@ PR-Agent is an advanced AI-powered system that orchestrates multiple specialized
 ## 🏗️ System Architecture
 
 ```mermaid
-graph TD
-    User([👤 User])
-    GH[🐱 GitHub Webhook]
+graph TB
+    Developer[Developer] -->|Push/Open PR| GitHub[GitHub/GitLab]
+    GitHub -->|Webhook| Gateway[API Gateway]
 
-    subgraph Interfaces
-        UI[🖥️ Streamlit UI]
-        MCP[🔌 FastMCP Server]
-        CLI[💻 CLI / GitHub Action]
+    Gateway --> Orchestrator{PR Supervisor Agent}
+
+    subgraph "Agent Squad (The Reviewers)"
+        Orchestrator --> DescAgent[📝 Description Agent]
+        Orchestrator --> ReviewAgent[👓 Code Review Agent]
+        Orchestrator --> SecAgent[🔒 Security Agent]
+        Orchestrator --> PerfAgent[🚀 Performance Agent]
+        Orchestrator --> TestAgent[🧪 QA/Test Agent]
+
+        ReviewAgent --Checks Style--> Linter[Pylint/Flake8]
+        SecAgent --Scans--> SAST[Bandit]
+        PerfAgent --Profiles--> Profiler[Complexity Analyzer]
     end
 
-    subgraph "PR-Agent Core (src/)"
-        Orchestrator[🧠 LangGraph Orchestrator]
-        State[💾 State Management]
-        MD[📝 Markdown / TOON Parser]
-
-        subgraph Agents
-            CR[🧐 Code Review Agent]
-            DESC[📝 Description Agent]
-            IMP[💡 Improvement Agent]
-            QA[❓ Q&A Agent]
-            CL[📜 Changelog Agent]
-        end
+    subgraph "Knowledge Base"
+        VectorDB[(Codebase Context)]
+        Rules[Style Guide / Best Practices]
     end
 
-    subgraph "LLM Providers"
-        LLM["🤖 LLM (OpenAI/Anthropic/Groq/OpenRouter)"]
-    end
+    DescAgent & ReviewAgent & SecAgent --> VectorDB
+    ReviewAgent --> Rules
 
-    User --> UI
-    User --> MCP
-    GH --> CLI
-
-    UI -- Direct Agent Usage --> Agents
-    MCP -- Exposes Tools --> Orchestrator
-    CLI -- Runs Commands --> Agents
-
-    Orchestrator --> Agents
-    Agents --> LLM
-    Agents --> State
-    Agents --> MD
-
-    style Agents fill:#f9f,stroke:#333
-    style Interfaces fill:#aff,stroke:#333
-    style LLM fill:#faa,stroke:#333
+    Orchestrator -->|Post Comments| GitHub
 ```
 
 ## 📂 Directory Structure
@@ -99,7 +82,22 @@ pr-agent/
 
 - **Architecture:** The Streamlit app imports agent classes (e.g., `CodeReviewAgent`) directly from `src.agents`.
 - **Flow:** User Input → Streamlit App → `Agent.execute()` → LLM → Streamlit UI
-- **Auth:** Uses `streamlit-authenticator` with bcrypt encryption for secure access.
+
+#### 🔐 Authentication Features
+
+| Feature             | Description                                                    |
+| ------------------- | -------------------------------------------------------------- |
+| **Login**           | Secure login with username/password using bcrypt hashing       |
+| **Registration**    | New user registration with email and password validation       |
+| **Forgot Password** | Email verification code flow for secure password reset         |
+| **Change Password** | Logged-in users can update their password via sidebar expander |
+
+**Security:**
+
+- Passwords hashed using `bcrypt` with salt rounds (12)
+- Session managed via encrypted cookies (configurable expiry: 30 days default)
+- User credentials stored in `config/auth_config.yaml`
+- Uses `streamlit-authenticator` library for secure authentication
 
 ### 2. 🔌 FastMCP Server (Assistant Mode)
 
@@ -117,6 +115,34 @@ pr-agent/
 - **Flow:** PR Event → GitHub Action → `cli.py` → `GitHubProvider` → Agents → PR Comment
 - **Triggers:** `opened`, `synchronize`, `reopened` events or manual `workflow_dispatch`.
 
+### 4. 🤖 Specialized Agent Squad
+
+The system deploys a squad of specialized agents, each acting as a "Staff Engineer" in their domain:
+
+| Agent                 | Persona           | Responsibilities                                           | Tools Integrated    |
+| --------------------- | ----------------- | ---------------------------------------------------------- | ------------------- |
+| **Code Review Agent** | Senior SWE        | General code quality, style, and logic checks.             | `pylint`, `flake8`  |
+| **Security Agent**    | InfoSec Lead      | Vulnerability scanning (SQLi, Secrets, XSS).               | `bandit` (SAST)     |
+| **Performance Agent** | SRE / Perf Expert | Identifying N+1 queries, complexity, and resource leaks.   | Complexity Analyzer |
+| **Test Agent**        | QA Architect      | Verifying test coverage and suggesting missing test cases. | -                   |
+| **Description Agent** | Technical Writer  | generating comprehensive PR descriptions and titles.       | -                   |
+
+**Hybrid Neuro-Symbolic Analysis**:
+Agents don't just "guess" based on the diff. They run actual static analysis tools (like `pylint` and `bandit`) on the code, ingest the structured output, and then use the LLM to interpret the results and provide actionable fixes.
+
+### 5. 🧠 Knowledge Base (RAG)
+
+_Note: This component is in active development._
+
+The system utilizes a **Vector Database** (VectorDB) to provide agents with broader codebase context, moving beyond single-file analysis.
+
+- **Purpose**: Enables agents to understand project-specific patterns, existing utilities, and architectural standards.
+- **Workflow**:
+  1. Codebase is indexed into a VectorDB (e.g., Chroma/Pinecone).
+  2. Agents query the DB for relevant snippets (e.g., "Find all auth decorators").
+  3. Retrieved context is injected into the prompt (RAG).
+- **Style Guide**: A dedicated "Rules DB" ensures code adheres to team-specific conventions.
+
 ## 📚 Documentation
 
 | Document                                           | Description                      |
@@ -130,7 +156,7 @@ pr-agent/
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - API Key (OpenAI, Anthropic, Groq, or OpenRouter)
 
 ### Installation

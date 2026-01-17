@@ -7,6 +7,7 @@ from src.toon_io import to_toon, from_toon
 from langchain_core.prompts import ChatPromptTemplate
 import json
 import os
+import tempfile
 from src.prompts import (
     CODE_REVIEW_SYSTEM_PROMPT, CODE_REVIEW_USER_PROMPT,
     PR_DESCRIPTION_SYSTEM_PROMPT, PR_DESCRIPTION_USER_PROMPT,
@@ -14,7 +15,10 @@ from src.prompts import (
     PR_QUESTIONS_SYSTEM_PROMPT, PR_QUESTIONS_USER_PROMPT,
     CHANGELOG_SYSTEM_PROMPT, CHANGELOG_USER_PROMPT,
     COMMIT_PR_GENERATOR_SYSTEM_PROMPT, COMMIT_PR_GENERATOR_USER_PROMPT,
-    BRANCH_PR_GENERATOR_SYSTEM_PROMPT, BRANCH_PR_GENERATOR_USER_PROMPT
+    BRANCH_PR_GENERATOR_SYSTEM_PROMPT, BRANCH_PR_GENERATOR_USER_PROMPT,
+    SECURITY_AGENT_SYSTEM_PROMPT, SECURITY_AGENT_USER_PROMPT,
+    PERFORMANCE_AGENT_SYSTEM_PROMPT, PERFORMANCE_AGENT_USER_PROMPT,
+    TEST_AGENT_SYSTEM_PROMPT, TEST_AGENT_USER_PROMPT
 )
 
 class BaseLLMAgent(BaseAgent):
@@ -121,8 +125,38 @@ class BaseLLMAgent(BaseAgent):
 
 class CodeReviewAgent(BaseLLMAgent):
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
+        """
+        Executes code review by analyzing the diff and running linters.
+        """
         try:
             diff = await self._get_diff(context)
+            
+            # --- Tool Execution: Pylint ---
+            tool_output = "No code analysis tools run (no python files found or tool execution failed)."
+            try:
+                # Fetch full file contents
+                gh = GitHubProvider(token=context.get("github_token"))
+                files_content = gh.get_pr_files_content(context.get("pr_url"))
+                
+                if files_content:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        files_to_scan = []
+                        for filename, content in files_content.items():
+                            if filename.endswith(".py"):
+                                file_path = os.path.join(temp_dir, os.path.basename(filename))
+                                with open(file_path, "w") as f:
+                                    f.write(content)
+                                files_to_scan.append(file_path)
+                        
+                        if files_to_scan:
+                            # Run pylint
+                            # -E: Errors only (to reduce noise)
+                            # --output-format=text
+                            command = ["pylint", "-E", "--output-format=text"] + files_to_scan
+                            tool_output = await self._run_tool(command)
+            except Exception as e:
+                tool_output = f"Error running code analysis tools: {e}"
+            # ------------------------------
             
             prompt = ChatPromptTemplate.from_messages([
                 ("system", CODE_REVIEW_SYSTEM_PROMPT),
@@ -130,7 +164,10 @@ class CodeReviewAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({
+                "diff": diff[:20000],
+                "tool_output": tool_output[:5000]
+            })
             
             # Return raw markdown directly - prompts output markdown now
             return {"code_review": response.content}
@@ -356,26 +393,121 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
     def get_dependencies(self) -> List[str]:
         return []
 
-# Legacy / Placeholder Agents
-class TestingAgent(BaseLLMAgent):
+class TestAgent(BaseLLMAgent):
+    """Agent for analyzing test coverage and suggesting tests."""
+    
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
-        return {"testing_results": "Testing agent not fully implemented yet."}
+        try:
+            diff = await self._get_diff(context)
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", TEST_AGENT_SYSTEM_PROMPT),
+                ("user", TEST_AGENT_USER_PROMPT)
+            ])
+
+            chain = prompt | self.llm
+            response = await chain.ainvoke({"diff": diff[:20000]})
+            
+            return {"testing_results": response.content}
+        except Exception as e:
+            return {"testing_results": {"error": str(e)}}
+
     async def validate_input(self, context: PRAgentState) -> bool:
-        return True
+        return "pr_url" in context
+
     def get_dependencies(self) -> List[str]:
         return []
 
-class DocumentationAgent(BaseLLMAgent):
+class PerformanceAgent(BaseLLMAgent):
+    """Agent for analyzing code performance and complexity."""
+    
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
-        return {"documentation": "Documentation agent not fully implemented yet."}
+        try:
+            diff = await self._get_diff(context)
+            
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", PERFORMANCE_AGENT_SYSTEM_PROMPT),
+                ("user", PERFORMANCE_AGENT_USER_PROMPT)
+            ])
+
+            chain = prompt | self.llm
+            response = await chain.ainvoke({"diff": diff[:20000]})
+            
+            return {"performance_analysis": response.content}
+        except Exception as e:
+            return {"performance_analysis": {"error": str(e)}}
+
     async def validate_input(self, context: PRAgentState) -> bool:
-        return True
+        return "pr_url" in context
+
     def get_dependencies(self) -> List[str]:
         return []
 
 class SecurityAgent(BaseLLMAgent):
+    """Agent for analyzing security vulnerabilities."""
+    
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
-        return {"security_analysis": "Security agent not fully implemented yet."}
+        try:
+            diff = await self._get_diff(context)
+            
+            # --- Tool Execution: Bandit ---
+            tool_output = "No security tools run (no python files found or tool execution failed)."
+            try:
+                 # Fetch full file contents
+                gh = GitHubProvider(token=context.get("github_token"))
+                files_content = gh.get_pr_files_content(context.get("pr_url"))
+                
+                if files_content:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        # Write files to temp dir
+                        files_to_scan = []
+                        for filename, content in files_content.items():
+                            if filename.endswith(".py"):
+                                file_path = os.path.join(temp_dir, os.path.basename(filename))
+                                with open(file_path, "w") as f:
+                                    f.write(content)
+                                files_to_scan.append(file_path)
+                        
+                        if files_to_scan:
+                            # Run bandit
+                            # -r: recursive (though we list files)
+                            # -f text: text format
+                            # -ll: medium and high severity
+                            command = ["bandit", "-f", "text", "-ll"] + files_to_scan
+                            tool_output = await self._run_tool(command)
+            except Exception as e:
+                tool_output = f"Error running security tools: {e}"
+            # ------------------------------
+
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", SECURITY_AGENT_SYSTEM_PROMPT),
+                ("user", SECURITY_AGENT_USER_PROMPT)
+            ])
+
+            chain = prompt | self.llm
+            response = await chain.ainvoke({
+                "diff": diff[:20000],
+                "tool_output": tool_output[:5000] # Truncate to avoid context limit
+            })
+            
+            return {"security_analysis": response.content}
+        except Exception as e:
+            return {"security_analysis": {"error": str(e)}}
+
+    async def validate_input(self, context: PRAgentState) -> bool:
+        return "pr_url" in context
+
+    def get_dependencies(self) -> List[str]:
+        return []
+
+# Legacy / Placeholder Agents
+class TestingAgent(TestAgent):
+    """Legacy alias for TestAgent."""
+    pass
+
+class DocumentationAgent(BaseLLMAgent):
+    async def execute(self, context: PRAgentState) -> Dict[str, Any]:
+        return {"documentation": "Documentation agent not fully implemented yet."}
     async def validate_input(self, context: PRAgentState) -> bool:
         return True
     def get_dependencies(self) -> List[str]:
