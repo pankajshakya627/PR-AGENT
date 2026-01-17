@@ -130,6 +130,19 @@ The system deploys a squad of specialized agents, each acting as a "Staff Engine
 **Hybrid Neuro-Symbolic Analysis**:
 Agents don't just "guess" based on the diff. They run actual static analysis tools (like `pylint` and `bandit`) on the code, ingest the structured output, and then use the LLM to interpret the results and provide actionable fixes.
 
+### 5. 🧠 Knowledge Base (RAG)
+
+_Note: This component is in active development._
+
+The system utilizes a **Vector Database** (VectorDB) to provide agents with broader codebase context, moving beyond single-file analysis.
+
+- **Purpose**: Enables agents to understand project-specific patterns, existing utilities, and architectural standards.
+- **Workflow**:
+  1. Codebase is indexed into a VectorDB (e.g., Chroma/Pinecone).
+  2. Agents query the DB for relevant snippets (e.g., "Find all auth decorators").
+  3. Retrieved context is injected into the prompt (RAG).
+- **Style Guide**: A dedicated "Rules DB" ensures code adheres to team-specific conventions.
+
 ## 📚 Documentation
 
 | Document                                           | Description                      |
@@ -143,7 +156,7 @@ Agents don't just "guess" based on the diff. They run actual static analysis too
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.11+
 - API Key (OpenAI, Anthropic, Groq, or OpenRouter)
 
 ### Installation

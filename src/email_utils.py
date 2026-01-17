@@ -61,7 +61,8 @@ def get_smtp_config() -> Tuple[str, int, str, str]:
     password = os.getenv('SMTP_PASSWORD', '')
     
     # Remove spaces from password (Gmail app passwords are sometimes copied with spaces)
-    password = password.replace(' ', '')
+    # Note: Ensure your SMTP password in .env does not contain leading/trailing spaces.
+    password = password.strip() if password else ''
     
     if not email or not password:
         raise ValueError(
@@ -142,6 +143,7 @@ PR-Agent Team
             padding: 10px 15px; 
             margin: 20px 0;
             border-radius: 4px;
+            color: #856404;
         }}
         .footer {{ 
             text-align: center; 

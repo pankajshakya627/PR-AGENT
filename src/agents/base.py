@@ -33,6 +33,7 @@ class BaseAgent(ABC):
         """
         import asyncio
         import logging
+        import os
         
         logger = logging.getLogger(__name__)
         
@@ -41,7 +42,7 @@ class BaseAgent(ABC):
                 *command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=cwd
+                cwd=cwd or os.getcwd()
             )
             
             stdout, stderr = await process.communicate()
