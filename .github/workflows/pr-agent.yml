@@ -149,7 +149,7 @@ jobs:
       
       - name: Handle Errors
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             github.rest.issues.createComment({
