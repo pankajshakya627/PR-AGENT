@@ -223,3 +223,80 @@ async def test_dynamic_execution_fallback(mock_llm_config, mock_chain, state):
         assert result["changelog_entry"] == "- fix: Fallback success"
         assert "openrouter" in created_providers
         assert len(created_providers) > 1
+
+
+@pytest.mark.asyncio
+async def test_fallback_proxy_concurrency(mock_llm_config, state):
+    from src.agents.specialized import BaseLLMAgent
+    import asyncio
+    import os
+    
+    # Mock config to use groq as primary
+    mock_llm_config.return_value["provider"] = "groq"
+    
+    # Create mock clients
+    mock_groq = MagicMock()
+    mock_groq.ainvoke = AsyncMock(side_effect=ValueError("Groq fail"))
+    
+    mock_nvidia = MagicMock()
+    mock_nvidia.ainvoke = AsyncMock(return_value=MagicMock(content="Nvidia success"))
+    
+    def create_mock_llm(provider, config):
+        if provider == "groq":
+            return mock_groq
+        return mock_nvidia
+        
+    with patch("src.agents.specialized.BaseLLMAgent._create_llm", side_effect=create_mock_llm):
+        os.environ["LLM_PROVIDER"] = "groq"
+        from src.agents.specialized import TestAgent
+        agent = TestAgent()
+        
+        # Call ainvoke concurrently using asyncio.gather
+        tasks = [
+            agent.llm.ainvoke("test query 1"),
+            agent.llm.ainvoke("test query 2"),
+            agent.llm.ainvoke("test query 3")
+        ]
+        
+        results = await asyncio.gather(*tasks)
+        
+        assert len(results) == 3
+        for res in results:
+            assert res.content == "Nvidia success"
+            
+        assert agent.provider == "nvidia"
+
+
+def test_pydantic_schema_validation():
+    from src.schemas import ChangelogEntry, ChangelogResponse
+    from pydantic import ValidationError
+    
+    # Valid model validation
+    entry = ChangelogEntry(type="feat", description="Dynamic fallback")
+    assert entry.type == "feat"
+    
+    resp = ChangelogResponse(entries=[entry])
+    assert len(resp.entries) == 1
+    
+    # Invalid model validation
+    with pytest.raises(ValidationError):
+        ChangelogEntry(description="Missing type field")
+
+
+def test_nvidia_key_validation_rejection(mock_llm_config):
+    from src.agents.specialized import TestAgent
+    import os
+
+    # Instantiate agent using a mock _create_llm so init succeeds
+    mock_llm = MagicMock()
+    with patch("src.agents.specialized.BaseLLMAgent._create_llm", return_value=mock_llm):
+        agent = TestAgent()
+
+    # Now call the REAL _create_llm directly with an empty/whitespace-only key
+    os.environ["NVIDIA_API_KEY"] = "   "
+    try:
+        with pytest.raises(ValueError, match="NVIDIA_API_KEY not set or empty"):
+            agent._create_llm("nvidia", agent.config)
+    finally:
+        # Always clean up env var
+        os.environ.pop("NVIDIA_API_KEY", None)

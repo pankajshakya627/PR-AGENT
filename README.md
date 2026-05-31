@@ -51,6 +51,39 @@ PR-Agent implements an enterprise-grade multi-tenant security architecture and a
 * **Tier 2: Episodic Memory (L2 - Events & Trajectories)**: Implements experience replay per tenant. Automatically logs execution results of successful agent trajectories and allows `PRQuestionsAgent` to retrieve past episodes to answer complex questions about past turns.
 * **Tier 3: Semantic Memory (L3 - Facts & Rules)**: Enforces persistent style guidelines and custom team rules per tenant. Team rules are registered dynamically and injected into the LLM system prompt for strict guidelines enforcement.
 
+### 3. ⚙️ Active Configuration & Usage
+
+#### Setting/Managing Tenant Isolation
+
+By default, the supervisor orchestrator and all specialized agents resolve the current tenant scope automatically based on the active thread or async task `contextvars`. You can manage it programmatically or via environment variables:
+
+* **Environment Variable Override**: Set the primary tenant context using `DEFAULT_TENANT_ID`.
+
+  ```bash
+  export DEFAULT_TENANT_ID="enterprise_client_a"
+  ```
+
+* **Programmatic Assignment**: Scope agent executions dynamically within specific tenant namespaces in your Python code:
+
+  ```python
+  from src.tenant import set_current_tenant_id, tenant_scoped
+
+  # Programmatic propagation across execution contexts
+  set_current_tenant_id("customer_account_b")
+  ```
+
+#### Registering Semantic Style Guidelines (L3)
+
+You can append custom guidelines or business rules directly into the L3 Semantic Memory layer per tenant to guide review logic:
+
+```python
+from src.memory import L3SemanticMemory
+from src.tenant import set_current_tenant_id
+
+set_current_tenant_id("engineering_team_x")
+L3SemanticMemory.register_rule("All public REST endpoints must include explicit OAuth decorators.")
+```
+
 ## 📂 Directory Structure
 
 ```plaintext
@@ -75,8 +108,11 @@ pr-agent/
 │   ├── github_commenter.py  # GitHub PR commenting
 │   ├── github_provider.py   # GitHub API interaction
 │   ├── graph.py             # LangGraph orchestration
+│   ├── memory.py            # Three-tiered cognitive memory system
 │   ├── prompts.py           # Centralized LLM prompts
+│   ├── schemas.py           # Pydantic validation schemas
 │   ├── state.py             # Agent state definitions
+│   ├── tenant.py            # Async-safe multi-tenant isolation
 │   └── utils.py             # Utility functions
 ├── 📂 tests/                # Test suite
 │   ├── test_functionality.py

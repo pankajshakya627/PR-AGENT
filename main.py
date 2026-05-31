@@ -7,17 +7,32 @@ load_dotenv()
 
 from fastmcp import FastMCP  # noqa: E402
 
-# Check PyGithub is installed
+import importlib.util
+
+# Check PyGithub is installed cleanly without package side effects
 try:
-    import github
-except ImportError:
-    print("\n❌ Error: 'PyGithub' not found.")
-    print("Please ensure you are running in the virtual environment:")
-    print("  source venv/bin/activate")
-    print("  python main.py")
-    print("OR")
-    print("  ./venv/bin/python main.py\n")
-    exit(1)
+    if importlib.util.find_spec("github") is None:
+        print("\n❌ Error: 'PyGithub' not found.")
+        print("Please ensure you are running in the virtual environment:")
+        print("  source venv/bin/activate")
+        print("  python main.py")
+        print("OR")
+        print("  ./venv/bin/python main.py\n")
+        exit(1)
+except ValueError:
+    # Fallback if pytest collection or import state throws ValueError on __spec__ check
+    try:
+        import github  # noqa: F401
+    except ImportError:
+        print("\n❌ Error: 'PyGithub' not found.")
+        print("Please ensure you are running in the virtual environment:")
+        print("  source venv/bin/activate")
+        print("  python main.py")
+        print("OR")
+        print("  ./venv/bin/python main.py\n")
+        exit(1)
+
+
 
 from src.graph import app  # noqa: E402
 from src.config import LLM_CONFIG, AGENT_CONFIG  # noqa: E402

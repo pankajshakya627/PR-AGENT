@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Union
 from src.agents.base import BaseAgent
 from src.state import PRAgentState
 from src.github_provider import GitHubProvider
@@ -9,6 +9,9 @@ from langchain_core.runnables import Runnable
 import json
 import os
 import tempfile
+import logging
+import threading
+import asyncio
 from src.prompts import (
     CODE_REVIEW_SYSTEM_PROMPT, CODE_REVIEW_USER_PROMPT,
     PR_DESCRIPTION_SYSTEM_PROMPT, PR_DESCRIPTION_USER_PROMPT,
@@ -22,67 +25,80 @@ from src.prompts import (
     TEST_AGENT_SYSTEM_PROMPT, TEST_AGENT_USER_PROMPT
 )
 from pydantic import BaseModel, Field
+from src.schemas import ChangelogEntry, ChangelogResponse
+from src.memory import L1WorkingMemory, L2EpisodicMemory, L3SemanticMemory
 
-class ChangelogEntry(BaseModel):
-    type: str = Field(description="e.g. feat, fix, chore, docs, refactor, performance, security")
-    description: str = Field(description="Brief explanation of the changes")
-
-class ChangelogResponse(BaseModel):
-    entries: List[ChangelogEntry]
+logger = logging.getLogger(__name__)
 
 class FallbackLLMProxy(Runnable):
+    """
+    Stateless proxy subclassing LangChain's Runnable to handle execution failovers.
+    Thread-safe and async-safe across concurrent requests.
+    """
     def __init__(self, agent: "BaseLLMAgent"):
         self.agent = agent
 
-    def invoke(self, input, config=None, **kwargs):
-        primary_provider = self.agent.provider or self.agent.config.get("provider", "groq")
+    def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        with self.agent._lock:
+            primary_provider = self.agent.provider
+
         providers = [primary_provider] + [p for p in self.agent.PROVIDER_ORDER if p != primary_provider]
         
         last_error = None
         for provider in providers:
             try:
-                current_llm = self.agent._inner_llm
-                if provider != self.agent.provider:
-                    import logging
-                    logging.info(f"FallbackLLMProxy: Synchronous execution failed with {self.agent.provider}. Attempting fallback to {provider}...")
-                    current_llm = self.agent._create_llm(provider, self.agent.config)
+                # Thread-safe client retrieval
+                current_llm = self.agent._get_llm(provider)
                 
                 res = current_llm.invoke(input, config=config, **kwargs)
                 
-                if provider != self.agent.provider:
-                    self.agent._inner_llm = current_llm
-                    self.agent.provider = provider
+                with self.agent._lock:
+                    if provider != self.agent.provider:
+                        logger.info(f"FallbackLLMProxy: Swapping active LLM provider from {self.agent.provider} to {provider}")
+                        self.agent.provider = provider
                 return res
             except Exception as e:
                 last_error = e
+                logger.warning(f"FallbackLLMProxy: Fallback to {provider} failed during execution: {e}")
                 continue
         raise last_error
 
-    async def ainvoke(self, input, config=None, **kwargs):
-        primary_provider = self.agent.provider or self.agent.config.get("provider", "groq")
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        async with self.agent._async_lock:
+            primary_provider = self.agent.provider
+
         providers = [primary_provider] + [p for p in self.agent.PROVIDER_ORDER if p != primary_provider]
         
         last_error = None
         for provider in providers:
             try:
-                current_llm = self.agent._inner_llm
-                if provider != self.agent.provider:
-                    import logging
-                    logging.info(f"FallbackLLMProxy: Async execution failed with {self.agent.provider}. Attempting fallback to {provider}...")
-                    current_llm = self.agent._create_llm(provider, self.agent.config)
+                # Thread-safe client retrieval
+                current_llm = self.agent._get_llm(provider)
                 
                 res = await current_llm.ainvoke(input, config=config, **kwargs)
                 
-                if provider != self.agent.provider:
-                    self.agent._inner_llm = current_llm
-                    self.agent.provider = provider
+                async with self.agent._async_lock:
+                    if provider != self.agent.provider:
+                        logger.info(f"FallbackLLMProxy: Swapping active LLM provider from {self.agent.provider} to {provider}")
+                        self.agent.provider = provider
                 return res
             except Exception as e:
                 last_error = e
-                import logging
-                logging.warning(f"FallbackLLMProxy: Fallback to {provider} failed during execution: {e}")
+                logger.warning(f"FallbackLLMProxy: Fallback to {provider} failed during execution: {e}")
                 continue
         raise last_error
+
+    def stream(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support stream()")
+
+    def batch(self, inputs: List[Any], config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support batch()")
+
+    async def astream(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support astream()")
+
+    async def abatch(self, inputs: List[Any], config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support abatch()")
 
 class BaseLLMAgent(BaseAgent):
     # Provider fallback order
@@ -91,90 +107,99 @@ class BaseLLMAgent(BaseAgent):
     def __init__(self):
         config = get_llm_config()
         self.config = config
-        self._inner_llm = None
         self.provider = None
         
-        # Try providers in order until one works
+        self._lock = threading.Lock()
+        self._async_lock = asyncio.Lock()
+        self._llm_cache: Dict[str, Any] = {}
+        
+        # Try providers in order until one works to set the primary provider
         providers_to_try = [config["provider"]] + [p for p in self.PROVIDER_ORDER if p != config["provider"]]
         
         for provider in providers_to_try:
             try:
-                self._inner_llm = self._create_llm(provider, config)
+                # Pre-initialize and cache the primary provider
+                self._get_llm(provider)
                 self.provider = provider
                 break
             except Exception as e:
-                import logging
-                logging.warning(f"Failed to initialize {provider}: {e}, trying next provider...")
+                logger.warning(f"Failed to initialize {provider} client: {e}, trying next provider...")
                 continue
         
-        if self._inner_llm is None:
+        if self.provider is None:
             raise ValueError("All LLM providers failed to initialize")
             
         self.llm = FallbackLLMProxy(self)
+
+    def _get_llm(self, provider: str) -> Any:
+        """Lazily cache and retrieve LLM client instances per provider (thread-safe)."""
+        with self._lock:
+            if provider not in self._llm_cache:
+                self._llm_cache[provider] = self._create_llm(provider, self.config)
+            return self._llm_cache[provider]
     
-    def _create_llm(self, provider: str, config: dict):
+    def _create_llm(self, provider: str, config: dict) -> Any:
         """Create LLM instance for given provider."""
         if provider == "groq":
             api_key = os.getenv("GROQ_API_KEY")
-            if not api_key:
-                raise ValueError("GROQ_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("GROQ_API_KEY not set or empty")
             from langchain_openai import ChatOpenAI
             model = config["groq_model"] or "llama-3.1-8b-instant"
             return ChatOpenAI(
                 model=model,
                 base_url=config["groq_base_url"],
-                api_key=api_key,
+                api_key=api_key.strip(),
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
         elif provider == "nvidia":
             api_key = os.getenv("NVIDIA_API_KEY")
-            if not api_key:
-                raise ValueError("NVIDIA_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("NVIDIA_API_KEY not set or empty")
             from langchain_nvidia_ai_endpoints import ChatNVIDIA
-            model = config.get("nvidia_model") or "nvidia/nemotron-3-super-120b-a12b"
+            model = config.get("nvidia_model") or "z-ai/glm-5.1"
             base_url = config.get("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
             return ChatNVIDIA(
                 model=model,
-                api_key=api_key,
-                base_url=base_url,
+                api_key=api_key.strip(),
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
         elif provider == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY")
-            if not api_key:
-                raise ValueError("OPENROUTER_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("OPENROUTER_API_KEY not set or empty")
             from langchain_openai import ChatOpenAI
             model = config["openrouter_model"] or "xiaomi/mimo-v2-flash:free"
             return ChatOpenAI(
                 model=model,
                 base_url=config["openrouter_base_url"],
-                api_key=api_key,
+                api_key=api_key.strip(),
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
         elif provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("OPENAI_API_KEY not set or empty")
             from langchain_openai import ChatOpenAI
             model = config["openai_model"] or "gpt-4.1-mini"
             return ChatOpenAI(
                 model=model,
-                api_key=api_key,
+                api_key=api_key.strip(),
                 temperature=0.2,
                 max_tokens=config["max_tokens"]
             )
         elif provider == "anthropic":
             api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("ANTHROPIC_API_KEY not set or empty")
             from langchain_anthropic import ChatAnthropic
             model = config["anthropic_model"] or "claude-sonnet-4-5-20250929"
             return ChatAnthropic(
                 model=model,
-                api_key=api_key,
+                api_key=api_key.strip(),
                 temperature=0.2,
                 max_tokens=config["max_tokens"]
             )
@@ -202,7 +227,6 @@ class BaseLLMAgent(BaseAgent):
         if not diff:
             raise ValueError("Empty diff")
             
-        from src.memory import L1WorkingMemory
         max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
         return L1WorkingMemory.optimize_diff_context(diff, max_chars)
 
@@ -242,7 +266,6 @@ class CodeReviewAgent(BaseLLMAgent):
                 tool_output = f"Error running code analysis tools: {e}"
             # ------------------------------
             
-            from src.memory import L1WorkingMemory, L3SemanticMemory
             max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
             diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
             
@@ -328,7 +351,6 @@ class PRQuestionsAgent(BaseLLMAgent):
     @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
-            from src.memory import L1WorkingMemory, L2EpisodicMemory
             diff = await self._get_diff(context)
             question = context.get("question", "")
             
@@ -371,7 +393,6 @@ class ChangelogAgent(BaseLLMAgent):
     @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
-            from src.memory import L1WorkingMemory
             diff = await self._get_diff(context)
             
             max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
@@ -442,7 +463,6 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
         if not diff:
             raise ValueError("Empty diff")
             
-        from src.memory import L1WorkingMemory
         max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
         diff_opt = L1WorkingMemory.optimize_diff_context(diff, max_chars)
         return diff_opt, details

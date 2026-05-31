@@ -1,0 +1,17 @@
+# Example Authentication Configuration for PR-Agent Streamlit App
+# Copy this to config/auth_config.yaml and customize.
+
+cookie:
+  expiry_days: 30
+  key: "YOUR_SECRET_KEY_HERE"  # Set to a secure random string or override via AUTH_COOKIE_KEY environment variable
+  name: pr_agent_auth
+credentials:
+  usernames:
+    admin:
+      email: admin@pragent.com
+      name: Administrator
+      # Default password hash for 'admin123'. Change this immediately or override via ADMIN_PASSWORD_HASH environment variable.
+      password: "$2b$12$G5j7jSSt8xOE9yICktUqGuIT3GrJGxHTvSqvWDJVtlcEOxtjH.CLy"
+pre-authorized:
+  emails:
+  - admin@pragent.com

@@ -29,7 +29,7 @@ LLM_CONFIG = {
     "local_model": os.getenv("LOCAL_LLM_MODEL", "ai/llama3.2:latest"),
     
     # NVIDIA Configuration
-    "nvidia_model": os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
+    "nvidia_model": os.getenv("NVIDIA_MODEL", "minimaxai/minimax-m2.7"),
     "nvidia_base_url": os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
     
     # Shared Settings

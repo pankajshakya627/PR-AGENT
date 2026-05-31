@@ -30,6 +30,7 @@ import asyncio
 import os
 import sys
 import re
+import secrets
 from pathlib import Path
 import datetime
 
@@ -40,9 +41,11 @@ sys.path.insert(0, str(project_root))
 # Config file path
 CONFIG_FILE = project_root / "config" / "auth_config.yaml"
 
+_secure_auth_key = None
 
 def load_config():
-    """Load authentication config from YAML file."""
+    """Load authentication config from YAML file with environment overrides."""
+    config = None
     if not CONFIG_FILE.exists():
         # Create default config
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -58,7 +61,7 @@ def load_config():
             },
             'cookie': {
                 'expiry_days': 30,
-                'key': 'pr_agent_auth_secret_key',
+                'key': secrets.token_hex(32),  # Dynamically generate secure default key
                 'name': 'pr_agent_auth'
             },
             'pre-authorized': {
@@ -67,10 +70,33 @@ def load_config():
         }
         with open(CONFIG_FILE, 'w') as f:
             yaml.dump(default_config, f)
-        return default_config
-    
-    with open(CONFIG_FILE) as f:
-        return yaml.load(f, Loader=SafeLoader)
+        config = default_config
+    else:
+        with open(CONFIG_FILE) as f:
+            config = yaml.load(f, Loader=SafeLoader)
+            
+    # Apply dynamic secure key generation if weak static default is detected
+    global _secure_auth_key
+    if 'cookie' in config:
+        cookie_key = os.getenv("AUTH_COOKIE_KEY")
+        if cookie_key and cookie_key.strip():
+            config['cookie']['key'] = cookie_key.strip()
+        elif config['cookie'].get('key') in ('pr_agent_auth_secret_key', 'YOUR_SECRET_KEY_HERE', '', None):
+            if not _secure_auth_key:
+                _secure_auth_key = secrets.token_hex(32)
+            config['cookie']['key'] = _secure_auth_key
+            
+    # Apply environment overrides for user credentials to prevent committing password hashes
+    if 'credentials' in config and 'usernames' in config['credentials']:
+        usernames = config['credentials']['usernames']
+        for user, env_var in [('admin', 'ADMIN_PASSWORD_HASH'), ('pankaj', 'PANKAJ_PASSWORD_HASH')]:
+            pwd_hash = os.getenv(env_var)
+            if pwd_hash and pwd_hash.strip():
+                if user not in usernames:
+                    usernames[user] = {'email': f'{user}@pragent.com', 'name': user.capitalize()}
+                usernames[user]['password'] = pwd_hash.strip()
+                
+    return config
 
 
 def save_config(config):
