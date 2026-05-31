@@ -107,7 +107,7 @@ def test_nvidia_llm_instantiation():
     
     config = get_llm_config()
     assert config["provider"] == "nvidia"
-    assert config["nvidia_model"] == "meta/llama2-70b"
+    assert config["nvidia_model"] == "nvidia/nemotron-3-super-120b-a12b"
     assert config["nvidia_base_url"] == "https://integrate.api.nvidia.com/v1"
     
     # Clean up env

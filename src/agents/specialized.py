@@ -132,7 +132,7 @@ class BaseLLMAgent(BaseAgent):
             if not api_key:
                 raise ValueError("NVIDIA_API_KEY not set")
             from langchain_nvidia_ai_endpoints import ChatNVIDIA
-            model = config.get("nvidia_model") or "meta/llama2-70b"
+            model = config.get("nvidia_model") or "nvidia/nemotron-3-super-120b-a12b"
             base_url = config.get("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
             return ChatNVIDIA(
                 model=model,

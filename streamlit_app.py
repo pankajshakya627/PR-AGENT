@@ -635,7 +635,7 @@ with st.sidebar:
             
         model = st.text_input(
             "Model Name",
-            value=os.getenv('NVIDIA_MODEL', 'meta/llama2-70b'),
+            value=os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-super-120b-a12b'),
             help="NVIDIA or Ollama model name"
         )
         if model:
