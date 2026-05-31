@@ -2,7 +2,7 @@ fastmcp
 python-dotenv
 PyGithub
 PyYAML
-toon-python
+git+https://github.com/toon-format/toon-python.git
 streamlit>=1.29.0
 langchain-openai>=0.1.0
 langchain-anthropic>=0.1.0
