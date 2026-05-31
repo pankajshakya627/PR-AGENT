@@ -140,10 +140,7 @@ file.py,Test improvement,code
 
             # 5. Test update_changelog
             print("\nTesting update_changelog...")
-            mock_llm.ainvoke.return_value = create_response("""
-entries[1]{type,description}:
-feat,Test feature
-""")
+            mock_llm.ainvoke.return_value = create_response('{"entries": [{"type": "feat", "description": "Test feature"}]}')
             try:
                 result = await update_changelog.fn("https://github.com/owner/repo/pull/1")
                 print(f"Result: {result}")

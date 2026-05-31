@@ -77,7 +77,6 @@ pr-agent/
 │   ├── graph.py             # LangGraph orchestration
 │   ├── prompts.py           # Centralized LLM prompts
 │   ├── state.py             # Agent state definitions
-│   ├── toon_io.py           # Structured output parser
 │   └── utils.py             # Utility functions
 ├── 📂 tests/                # Test suite
 │   ├── test_functionality.py

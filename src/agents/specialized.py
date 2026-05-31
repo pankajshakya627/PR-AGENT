@@ -4,8 +4,6 @@ from src.state import PRAgentState
 from src.github_provider import GitHubProvider
 from src.config import get_llm_config
 from src.tenant import tenant_scoped
-
-from src.toon_io import to_toon, from_toon
 from langchain_core.prompts import ChatPromptTemplate
 import json
 import os
@@ -22,6 +20,14 @@ from src.prompts import (
     PERFORMANCE_AGENT_SYSTEM_PROMPT, PERFORMANCE_AGENT_USER_PROMPT,
     TEST_AGENT_SYSTEM_PROMPT, TEST_AGENT_USER_PROMPT
 )
+from pydantic import BaseModel, Field
+
+class ChangelogEntry(BaseModel):
+    type: str = Field(description="e.g. feat, fix, chore, docs, refactor, performance, security")
+    description: str = Field(description="Brief explanation of the changes")
+
+class ChangelogResponse(BaseModel):
+    entries: List[ChangelogEntry]
 
 class BaseLLMAgent(BaseAgent):
     # Provider fallback order
@@ -314,28 +320,46 @@ class ChangelogAgent(BaseLLMAgent):
             max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
             diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
             
+            system_prompt = (
+                f"{CHANGELOG_SYSTEM_PROMPT}\n\n"
+                "**Response Requirement**:\n"
+                "You MUST respond with a valid JSON object matching the following structure:\n"
+                "{{\n  \"entries\": [\n    {{\n      \"type\": \"feat | fix | chore | docs | refactor | performance | security\",\n      \"description\": \"Brief explanation\"\n    }}\n  ]\n}}"
+            )
+            
             prompt = ChatPromptTemplate.from_messages([
-                ("system", CHANGELOG_SYSTEM_PROMPT),
+                ("system", system_prompt),
                 ("user", CHANGELOG_USER_PROMPT)
             ])
 
             chain = prompt | self.llm
             response = await chain.ainvoke({"diff": diff_optimized})
             
-            content = response.content
-            # Handle TOON format in case of mock output or specific system structures
-            if "entries" in content or "entries[" in content:
-                from src.toon_io import from_toon
-                parsed = from_toon(content)
-                if isinstance(parsed, dict) and "entries" in parsed:
-                    lines = []
-                    for entry in parsed["entries"]:
-                        t = entry.get("type", "")
-                        d = entry.get("description", "")
-                        lines.append(f"- {t}: {d}")
-                    content = "\n".join(lines)
+            content = response.content.strip()
             
-            return {"changelog_entry": content}
+            # Remove possible markdown code fences if present (e.g. ```json ... ```)
+            if content.startswith("```"):
+                content = content.split("\n", 1)[-1]
+                if content.endswith("```"):
+                    content = content.rsplit("```", 1)[0]
+                content = content.strip()
+            
+            # Validate utilizing Pydantic
+            try:
+                parsed = json.loads(content)
+                validated = ChangelogResponse(**parsed)
+                
+                # Render validated JSON back to Keep-a-Changelog Markdown format
+                lines = []
+                for entry in validated.entries:
+                    lines.append(f"- {entry.type}: {entry.description}")
+                changelog_entry = "\n".join(lines)
+            except Exception as parse_err:
+                import logging
+                logging.warning(f"ChangelogAgent: Pydantic validation failed ({parse_err}). Falling back to raw response.")
+                changelog_entry = response.content
+            
+            return {"changelog_entry": changelog_entry}
         except Exception as e:
             return {"changelog_entry": f"Error: {str(e)}"}
 

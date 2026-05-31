@@ -176,7 +176,7 @@ async def test_changelog_agent(mock_llm_config, mock_chain, state):
             assert "changelog_entry" in result
             assert result["changelog_entry"] == "- Added: new functionality"
             
-            # Test TOON mock response parsing
-            mock_chain_obj.ainvoke.return_value = MagicMock(content="entries[1]{type,description}:\nfeat,Test feature")
-            result_toon = await agent.execute(state)
-            assert result_toon["changelog_entry"] == "- feat: Test feature"
+            # Test Pydantic JSON mock response parsing
+            mock_chain_obj.ainvoke.return_value = MagicMock(content='{"entries": [{"type": "feat", "description": "Test feature"}]}')
+            result_json = await agent.execute(state)
+            assert result_json["changelog_entry"] == "- feat: Test feature"
