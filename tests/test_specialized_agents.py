@@ -23,7 +23,8 @@ def mock_chain():
 def state():
     return PRAgentState(
         pr_url="https://github.com/test/repo/pull/1",
-        github_token="fake_token"
+        github_token="fake_token",
+        tenant_id="test_tenant"
     )
 
 @pytest.mark.asyncio
@@ -168,13 +169,13 @@ async def test_changelog_agent(mock_llm_config, mock_chain, state):
             mock_prompt.return_value = mock_prompt_obj
             mock_chain_obj = AsyncMock()
             
-            # Test standard markdown response
+            # Invalid non-JSON responses are rejected rather than accepted raw.
             mock_chain_obj.ainvoke.return_value = MagicMock(content="- Added: new functionality")
             mock_prompt_obj.__or__.return_value = mock_chain_obj
             
             result = await agent.execute(state)
             assert "changelog_entry" in result
-            assert result["changelog_entry"] == "- Added: new functionality"
+            assert result["changelog_entry"].startswith("Error: Invalid changelog response")
             
             # Test Pydantic JSON mock response parsing
             mock_chain_obj.ainvoke.return_value = MagicMock(content='{"entries": [{"type": "feat", "description": "Test feature"}]}')
@@ -213,6 +214,7 @@ async def test_dynamic_execution_fallback(mock_llm_config, mock_chain, state):
         # We start with openrouter as primary provider
         os.environ["LLM_PROVIDER"] = "openrouter"
         agent = ChangelogAgent()
+        agent._get_diff = AsyncMock(return_value="diff content")
         
         # Verify that during execute:
         # 1. First openrouter tries and fails
@@ -282,6 +284,15 @@ def test_pydantic_schema_validation():
     with pytest.raises(ValidationError):
         ChangelogEntry(description="Missing type field")
 
+    with pytest.raises(ValidationError):
+        ChangelogEntry(type="misc", description="Unsupported type")
+
+    with pytest.raises(ValidationError):
+        ChangelogEntry(type="fix", description="   ")
+
+    with pytest.raises(ValidationError):
+        ChangelogResponse(entries=[])
+
 
 def test_nvidia_key_validation_rejection(mock_llm_config):
     from src.agents.specialized import TestAgent
@@ -299,4 +310,28 @@ def test_nvidia_key_validation_rejection(mock_llm_config):
             agent._create_llm("nvidia", agent.config)
     finally:
         # Always clean up env var
+        os.environ.pop("NVIDIA_API_KEY", None)
+
+
+def test_nvidia_base_url_is_passed_to_client(mock_llm_config):
+    from src.agents.specialized import TestAgent
+    import os
+
+    mock_llm = MagicMock()
+    with patch("src.agents.specialized.BaseLLMAgent._create_llm", return_value=mock_llm):
+        agent = TestAgent()
+
+    os.environ["NVIDIA_API_KEY"] = "fake-key"
+    try:
+        llm = agent._create_llm(
+            "nvidia",
+            {
+                "nvidia_model": "z-ai/glm-5.1",
+                "nvidia_base_url": "https://example.test/v1",
+                "temperature": 0.2,
+                "max_tokens": 1000,
+            },
+        )
+        assert str(llm.base_url) == "https://example.test/v1"
+    finally:
         os.environ.pop("NVIDIA_API_KEY", None)

@@ -8,7 +8,8 @@ from src.tenant import (
     get_tenant_audit_logs,
     get_tenant_cached_value,
     set_tenant_cached_value,
-    tenant_scoped
+    tenant_scoped,
+    resolve_tenant_id
 )
 
 def test_tenant_context_propagation():
@@ -17,7 +18,7 @@ def test_tenant_context_propagation():
     in a thread-safe / async-safe manner.
     """
     assert get_current_tenant_id() is None
-    
+
     with TenantContext("tenant_alpha"):
         assert get_current_tenant_id() == "tenant_alpha"
         
@@ -27,6 +28,19 @@ def test_tenant_context_propagation():
         assert get_current_tenant_id() == "tenant_alpha"
         
     assert get_current_tenant_id() is None
+
+
+def test_tenant_id_validation_rejects_missing_or_unsafe_values(monkeypatch):
+    monkeypatch.delenv("DEFAULT_TENANT_ID", raising=False)
+
+    with pytest.raises(ValueError, match="Valid tenant_id required"):
+        TenantContext("")
+
+    with pytest.raises(ValueError, match="Valid tenant_id required"):
+        TenantContext(" ../shared")
+
+    with pytest.raises(ValueError, match="Valid tenant_id required"):
+        resolve_tenant_id(None)
 
 
 @pytest.mark.asyncio
@@ -59,8 +73,9 @@ def test_scoped_caching():
     # Active caching is enabled by default
     os.environ["ENABLE_CACHING"] = "True"
     
-    # Try reading cache key without tenant context -> should refuse
-    assert get_tenant_cached_value("common_key") is None
+    # Try reading cache key without tenant context -> should fail closed
+    with pytest.raises(ValueError, match="Valid tenant_id required"):
+        get_tenant_cached_value("common_key")
     
     with TenantContext("tenant_red"):
         set_tenant_cached_value("common_key", "data_red")
@@ -153,4 +168,3 @@ def test_three_tiered_memory_architecture():
         # Purple should not see Yellow's custom semantic rules
         rules_purple = L3SemanticMemory.get_rules()
         assert not any("Python functions should not exceed 30 lines" in r for r in rules_purple)
-

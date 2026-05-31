@@ -1,7 +1,7 @@
 import os
 import logging
-from typing import Dict, Any, List, Optional
-from src.tenant import get_current_tenant_id, log_tenant_action
+from typing import Dict, Any, List
+from src.tenant import log_tenant_action, require_current_tenant_id
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class L2EpisodicMemory:
         """
         Saves an execution trajectory or result inside the episodic memory of the tenant.
         """
-        tenant_id = get_current_tenant_id() or "default_tenant"
+        tenant_id = require_current_tenant_id()
         if tenant_id not in cls._episodes:
             cls._episodes[tenant_id] = {}
         if resource_key not in cls._episodes[tenant_id]:
@@ -61,7 +61,7 @@ class L2EpisodicMemory:
         """
         Retrieves all past execution episodes/trajectories for experience replay.
         """
-        tenant_id = get_current_tenant_id() or "default_tenant"
+        tenant_id = require_current_tenant_id()
         return cls._episodes.get(tenant_id, {}).get(resource_key, {})
 
 
@@ -80,7 +80,7 @@ class L3SemanticMemory:
     @classmethod
     def register_rule(cls, rule: str):
         """Registers a persistent style/coding rule for the current tenant."""
-        tenant_id = get_current_tenant_id() or "default_tenant"
+        tenant_id = require_current_tenant_id()
         if tenant_id not in cls._semantic_facts:
             cls._semantic_facts[tenant_id] = []
         cls._semantic_facts[tenant_id].append(rule)
@@ -89,7 +89,7 @@ class L3SemanticMemory:
     @classmethod
     def get_rules(cls) -> List[str]:
         """Returns the list of persistent style guidelines/rules for the current tenant."""
-        tenant_id = get_current_tenant_id() or "default_tenant"
+        tenant_id = require_current_tenant_id()
         # Always return some sensible default coding practices if none are registered
         default_rules = [
             "Maintain high test coverage for all newly added functions.",

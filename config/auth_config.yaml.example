@@ -10,8 +10,8 @@ credentials:
     admin:
       email: admin@pragent.com
       name: Administrator
-      # Default password hash for 'admin123'. Change this immediately or override via ADMIN_PASSWORD_HASH environment variable.
-      password: "$2b$12$G5j7jSSt8xOE9yICktUqGuIT3GrJGxHTvSqvWDJVtlcEOxtjH.CLy"
+      # Set ADMIN_PASSWORD_HASH before enabling this account.
+      password: "CHANGE_ME_IMMEDIATELY"
 pre-authorized:
   emails:
   - admin@pragent.com

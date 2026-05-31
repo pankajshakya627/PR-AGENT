@@ -40,6 +40,7 @@ sys.path.insert(0, str(project_root))
 
 # Config file path
 CONFIG_FILE = project_root / "config" / "auth_config.yaml"
+KNOWN_ADMIN123_HASH = "$2b$12$G5j7jSSt8xOE9yICktUqGuIT3GrJGxHTvSqvWDJVtlcEOxtjH.CLy"
 
 _secure_auth_key = None
 
@@ -51,13 +52,7 @@ def load_config():
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         default_config = {
             'credentials': {
-                'usernames': {
-                    'admin': {
-                        'email': 'admin@pragent.com',
-                        'name': 'Administrator',
-                        'password': bcrypt.hashpw('admin123'.encode(), bcrypt.gensalt()).decode()
-                    }
-                }
+                'usernames': {}
             },
             'cookie': {
                 'expiry_days': 30,
@@ -65,9 +60,17 @@ def load_config():
                 'name': 'pr_agent_auth'
             },
             'pre-authorized': {
-                'emails': ['admin@pragent.com']
+                'emails': []
             }
         }
+        admin_hash = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
+        if admin_hash:
+            default_config['credentials']['usernames']['admin'] = {
+                'email': 'admin@pragent.com',
+                'name': 'Administrator',
+                'password': admin_hash
+            }
+            default_config['pre-authorized']['emails'].append('admin@pragent.com')
         with open(CONFIG_FILE, 'w') as f:
             yaml.dump(default_config, f)
         config = default_config
@@ -95,6 +98,10 @@ def load_config():
                 if user not in usernames:
                     usernames[user] = {'email': f'{user}@pragent.com', 'name': user.capitalize()}
                 usernames[user]['password'] = pwd_hash.strip()
+        admin_user = usernames.get('admin')
+        unsafe_admin_passwords = {KNOWN_ADMIN123_HASH, "CHANGE_ME_IMMEDIATELY", "", None}
+        if admin_user and admin_user.get('password') in unsafe_admin_passwords and not os.getenv("ADMIN_PASSWORD_HASH"):
+            usernames.pop('admin')
                 
     return config
 
@@ -678,6 +685,42 @@ with st.sidebar:
         help="Limit input size (diff) to avoid context overflow. ~4 chars = 1 token. Decrease if getting 400 errors."
     )
     os.environ['LLM_MAX_CONTEXT_CHARS'] = str(max_context)
+
+    # Optional Langfuse observability
+    st.divider()
+    st.subheader("Langfuse Observability")
+    langfuse_enabled = st.checkbox(
+        "Enable Langfuse tracing",
+        value=os.getenv('LANGFUSE_ENABLED', '').lower() in ('1', 'true', 'yes', 'on') or bool(os.getenv('LANGFUSE_PUBLIC_KEY')),
+        help="Capture LangChain traces for monitoring, debugging, latency, and token usage."
+    )
+    os.environ['LANGFUSE_ENABLED'] = "true" if langfuse_enabled else "false"
+    if langfuse_enabled:
+        public_key = st.text_input(
+            "Langfuse Public Key",
+            value=os.getenv('LANGFUSE_PUBLIC_KEY', ''),
+            type="password",
+            help="Your Langfuse project public key"
+        )
+        if public_key:
+            os.environ['LANGFUSE_PUBLIC_KEY'] = public_key
+
+        secret_key = st.text_input(
+            "Langfuse Secret Key",
+            value=os.getenv('LANGFUSE_SECRET_KEY', ''),
+            type="password",
+            help="Your Langfuse project secret key"
+        )
+        if secret_key:
+            os.environ['LANGFUSE_SECRET_KEY'] = secret_key
+
+        base_url = st.text_input(
+            "Langfuse Base URL",
+            value=os.getenv('LANGFUSE_BASE_URL', 'https://cloud.langfuse.com'),
+            help="Use https://us.cloud.langfuse.com for the US region"
+        )
+        if base_url:
+            os.environ['LANGFUSE_BASE_URL'] = base_url
     
     # Current configuration display
     st.divider()
@@ -687,7 +730,8 @@ with st.sidebar:
         "provider": config_display["provider"],
         "temperature": config_display["temperature"],
         "max_tokens": config_display["max_tokens"],
-        "max_context_chars": config_display.get("max_context_chars", 12000)
+        "max_context_chars": config_display.get("max_context_chars", 12000),
+        "langfuse_tracing": os.getenv('LANGFUSE_ENABLED', 'false')
     })
     
     st.divider()
@@ -1089,4 +1133,3 @@ if st.session_state.get('last_pr_content') and (st.session_state.get('last_commi
                 st.error(f"❌ Error creating PR: {str(e)}")
     else:
         st.warning("⚠️ Enter the source branch name to create a PR")
-

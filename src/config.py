@@ -4,7 +4,7 @@ from typing import Dict, Any, Literal
 # ============================================================================
 # LLM Configuration
 # ============================================================================
-# Provider options: "openai", "anthropic", "local", "openrouter", "groq"
+# Provider options: "openai", "anthropic", "local", "openrouter", "groq", "nvidia"
 # Set via environment variable LLM_PROVIDER (default: openrouter)
 
 LLM_CONFIG = {

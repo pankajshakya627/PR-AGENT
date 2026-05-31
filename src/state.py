@@ -34,6 +34,7 @@ class PRAgentState(TypedDict):
     pr_requirements: str
 
     # GitHub Context
+    tenant_id: Optional[str]
     github_token: Optional[str]
     pr_url: Optional[str]
     diff_content: Optional[str]
@@ -50,4 +51,3 @@ class PRAgentState(TypedDict):
     errors: Annotated[List[str], add]
     
     final_pr: Optional[Dict]
-

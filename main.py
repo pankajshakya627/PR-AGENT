@@ -1,6 +1,6 @@
 """PR-Agent MCP Server - Provides tools for PR analysis via FastMCP."""
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,6 +36,8 @@ except ValueError:
 
 from src.graph import app  # noqa: E402
 from src.config import LLM_CONFIG, AGENT_CONFIG  # noqa: E402
+from src.tenant import resolve_tenant_id  # noqa: E402
+from src.tracing import build_langfuse_config  # noqa: E402
 from src.prompts import (  # noqa: E402
     CODE_REVIEW_SYSTEM_PROMPT,
     PR_DESCRIPTION_SYSTEM_PROMPT,
@@ -47,6 +49,11 @@ from src.prompts import (  # noqa: E402
 )
 
 mcp = FastMCP("pr-agent-system")
+
+
+def _tenant_id_for_request(tenant_id: Optional[str]) -> str:
+    """Resolve tenant identity for public MCP tools, failing closed if absent."""
+    return resolve_tenant_id(tenant_id)
 
 @mcp.resource("config://llm")
 def get_llm_config() -> str:
@@ -96,7 +103,7 @@ def commit_pr_generator_prompt() -> str:
 
 
 @mcp.tool()
-async def create_pull_request(requirements: str) -> Dict[str, Any]:
+async def create_pull_request(requirements: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Creates a pull request based on the provided requirements.
     
@@ -112,10 +119,14 @@ async def create_pull_request(requirements: str) -> Dict[str, Any]:
         "execution_mode": "hybrid",
         "agent_results": {},
         "final_pr": None,
-        "errors": []
+        "errors": [],
+        "tenant_id": _tenant_id_for_request(tenant_id)
     }
     
-    result = await app.ainvoke(initial_state)
+    result = await app.ainvoke(
+        initial_state,
+        config=build_langfuse_config(initial_state, run_name="create_pull_request")
+    )
     return result.get("final_pr", {})
 
 @mcp.tool()
@@ -138,7 +149,7 @@ async def analyze_dependencies(tasks: List[str]) -> Dict[str, List[str]]:
     return {"status": "Not fully implemented for direct tool access yet"}
 
 @mcp.tool()
-async def review_pr(pr_url: str) -> Dict[str, Any]:
+async def review_pr(pr_url: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Performs a code review on a specific Pull Request.
     
@@ -160,7 +171,8 @@ async def review_pr(pr_url: str) -> Dict[str, Any]:
         "execution_mode": "sequential",
         "task_graph": {},
         "final_pr": None,
-        "errors": []
+        "errors": [],
+        "tenant_id": _tenant_id_for_request(tenant_id)
     }
     
     agent = CodeReviewAgent()
@@ -168,51 +180,51 @@ async def review_pr(pr_url: str) -> Dict[str, Any]:
     return result.get("code_review", {})
 
 @mcp.tool()
-async def describe_pr(pr_url: str) -> Dict[str, Any]:
+async def describe_pr(pr_url: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     """Generates a comprehensive description for a Pull Request."""
     from src.agents.specialized import PRDescriptionAgent
     from src.state import PRAgentState
     
-    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": []}
+    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": [], "tenant_id": _tenant_id_for_request(tenant_id)}
     agent = PRDescriptionAgent()
     result = await agent.execute(state)
     return result.get("pr_description", {})
 
 @mcp.tool()
-async def improve_code(pr_url: str) -> Dict[str, Any]:
+async def improve_code(pr_url: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     """Suggests code improvements for a Pull Request."""
     from src.agents.specialized import CodeImprovementAgent
     from src.state import PRAgentState
     
-    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": []}
+    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": [], "tenant_id": _tenant_id_for_request(tenant_id)}
     agent = CodeImprovementAgent()
     result = await agent.execute(state)
     return result.get("code_improvements", {})
 
 @mcp.tool()
-async def ask_pr(pr_url: str, question: str) -> str:
+async def ask_pr(pr_url: str, question: str, tenant_id: Optional[str] = None) -> str:
     """Asks a question about a Pull Request."""
     from src.agents.specialized import PRQuestionsAgent
     from src.state import PRAgentState
     
-    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "question": question, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": []}
+    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "question": question, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": [], "tenant_id": _tenant_id_for_request(tenant_id)}
     agent = PRQuestionsAgent()
     result = await agent.execute(state)
     return result.get("answer", "No answer generated.")
 
 @mcp.tool()
-async def update_changelog(pr_url: str) -> str:
+async def update_changelog(pr_url: str, tenant_id: Optional[str] = None) -> str:
     """Generates a changelog entry for a Pull Request."""
     from src.agents.specialized import ChangelogAgent
     from src.state import PRAgentState
     
-    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": []}
+    state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": [], "tenant_id": _tenant_id_for_request(tenant_id)}
     agent = ChangelogAgent()
     result = await agent.execute(state)
     return result.get("changelog_entry", "")
 
 @mcp.tool()
-async def generate_pr_from_commit(commit_url: str) -> Dict[str, Any]:
+async def generate_pr_from_commit(commit_url: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Generates a PR title and detailed description from a GitHub commit URL.
     
@@ -233,7 +245,8 @@ async def generate_pr_from_commit(commit_url: str) -> Dict[str, Any]:
         "execution_mode": "sequential",
         "task_graph": {},
         "final_pr": None,
-        "errors": []
+        "errors": [],
+        "tenant_id": _tenant_id_for_request(tenant_id)
     }
     agent = CommitPRGeneratorAgent()
     result = await agent.execute(state)
@@ -249,11 +262,13 @@ if __name__ == "__main__":
 Examples:
   python main.py                                    # Run with defaults
   python main.py --provider groq --model llama-3.1-8b-instant
+  python main.py --provider nvidia --model z-ai/glm-5.1
   python main.py --provider openrouter --model xiaomi/mimo-v2-flash:free
   python main.py --provider anthropic --model claude-sonnet-4-5-20250929
   
 Providers:
   groq        - Fast inference with Llama/Mixtral models (recommended, free)
+  nvidia      - NVIDIA NIM compatible endpoints
   openrouter  - Access to many models including Gemini, Grok, etc.
   openai      - OpenAI GPT models
   anthropic   - Claude models
@@ -263,7 +278,7 @@ Providers:
     
     parser.add_argument(
         "--provider",
-        choices=["groq", "openai", "anthropic", "openrouter", "local"],
+        choices=["groq", "nvidia", "openai", "anthropic", "openrouter", "local"],
         help="LLM provider to use (default: from LLM_PROVIDER env var or 'groq')"
     )
     
@@ -292,6 +307,7 @@ Providers:
             'openai': 'OPENAI_MODEL',
             'anthropic': 'ANTHROPIC_MODEL',
             'openrouter': 'OPENROUTER_MODEL',
+            'nvidia': 'NVIDIA_MODEL',
             'local': 'LOCAL_LLM_MODEL'
         }
         env_key = model_env_map.get(effective_provider, 'GROQ_MODEL')

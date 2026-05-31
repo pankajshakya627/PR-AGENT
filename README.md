@@ -113,6 +113,7 @@ pr-agent/
 │   ├── schemas.py           # Pydantic validation schemas
 │   ├── state.py             # Agent state definitions
 │   ├── tenant.py            # Async-safe multi-tenant isolation
+│   ├── tracing.py           # Optional Langfuse tracing integration
 │   └── utils.py             # Utility functions
 ├── 📂 tests/                # Test suite
 │   ├── test_functionality.py
@@ -159,7 +160,29 @@ pr-agent/
 - **Flow:** Claude/IDE → MCP Protocol → `main.py` → `app.ainvoke()` → Agents → Response
 - **Tools:** Exposes `review_pr`, `describe_pr`, `ask_pr`, etc.
 
-### 3. 🚀 GitHub Actions (CI/CD Mode)
+### 3. 📈 Langfuse Tracing & Monitoring
+
+PR-Agent can emit LangChain/LangGraph traces to Langfuse for monitoring LLM calls, fallbacks, latency, token usage, and per-tenant agent behavior. Tracing is optional and stays disabled unless Langfuse credentials are configured.
+
+```bash
+export LANGFUSE_PUBLIC_KEY="pk-lf-..."
+export LANGFUSE_SECRET_KEY="sk-lf-..."
+# PR-Agent accepts LANGFUSE_BASE_URL and maps it to the SDK's LANGFUSE_HOST.
+export LANGFUSE_BASE_URL="https://cloud.langfuse.com"
+# Optional explicit switch. Credentials alone also enable tracing.
+export LANGFUSE_ENABLED=true
+```
+
+Each specialized agent invocation is traced with:
+
+- `langfuse_user_id`: active `tenant_id`
+- `langfuse_session_id`: PR URL, commit URL, or branch comparison key
+- tags: `pr-agent` plus the agent run name
+- metadata: tenant, agent name, and active LLM provider
+
+This follows the Langfuse tracing model of one trace per system invocation and session grouping around the PR under review.
+
+### 4. 🚀 GitHub Actions (CI/CD Mode)
 
 **Interaction:** Validates code automatically on every Pull Request.
 
@@ -167,7 +190,7 @@ pr-agent/
 - **Flow:** PR Event → GitHub Action → `cli.py` → `GitHubProvider` → Agents → PR Comment
 - **Triggers:** `opened`, `synchronize`, `reopened` events or manual `workflow_dispatch`.
 
-### 4. 🤖 Specialized Agent Squad
+### 5. 🤖 Specialized Agent Squad
 
 The system deploys a squad of specialized agents, each acting as a "Staff Engineer" in their domain:
 
@@ -182,7 +205,7 @@ The system deploys a squad of specialized agents, each acting as a "Staff Engine
 **Hybrid Neuro-Symbolic Analysis**:
 Agents don't just "guess" based on the diff. They run actual static analysis tools (like `pylint` and `bandit`) on the code, ingest the structured output, and then use the LLM to interpret the results and provide actionable fixes.
 
-### 5. 🧠 Knowledge Base (RAG)
+### 6. 🧠 Knowledge Base (RAG)
 
 _Note: This component is in active development._
 

@@ -1,9 +1,10 @@
-from typing import Dict, Any, List, Union
+from typing import Dict, Any, List
 from src.agents.base import BaseAgent
 from src.state import PRAgentState
 from src.github_provider import GitHubProvider
 from src.config import get_llm_config
 from src.tenant import tenant_scoped
+from src.tracing import build_langfuse_config
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 import json
@@ -24,8 +25,7 @@ from src.prompts import (
     PERFORMANCE_AGENT_SYSTEM_PROMPT, PERFORMANCE_AGENT_USER_PROMPT,
     TEST_AGENT_SYSTEM_PROMPT, TEST_AGENT_USER_PROMPT
 )
-from pydantic import BaseModel, Field
-from src.schemas import ChangelogEntry, ChangelogResponse
+from src.schemas import ChangelogResponse
 from src.memory import L1WorkingMemory, L2EpisodicMemory, L3SemanticMemory
 
 logger = logging.getLogger(__name__)
@@ -137,6 +137,10 @@ class BaseLLMAgent(BaseAgent):
             if provider not in self._llm_cache:
                 self._llm_cache[provider] = self._create_llm(provider, self.config)
             return self._llm_cache[provider]
+
+    def _trace_config(self, context: PRAgentState, run_name: str) -> Any:
+        """Build optional LangChain tracing config for this agent invocation."""
+        return build_langfuse_config(context, run_name=run_name, provider=self.provider)
     
     def _create_llm(self, provider: str, config: dict) -> Any:
         """Create LLM instance for given provider."""
@@ -163,6 +167,7 @@ class BaseLLMAgent(BaseAgent):
             return ChatNVIDIA(
                 model=model,
                 api_key=api_key.strip(),
+                base_url=base_url,
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
@@ -283,7 +288,7 @@ class CodeReviewAgent(BaseLLMAgent):
             response = await chain.ainvoke({
                 "diff": diff_optimized,
                 "tool_output": tool_output[:5000]
-            })
+            }, config=self._trace_config(context, "code_review"))
             
             # Return raw markdown directly - prompts output markdown now
             return {"code_review": response.content}
@@ -309,7 +314,7 @@ class PRDescriptionAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "pr_description"))
             
             # Return raw markdown directly
             return {"pr_description": response.content}
@@ -334,7 +339,7 @@ class CodeImprovementAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "code_improvement"))
             
             # Return raw markdown directly
             return {"code_improvements": response.content}
@@ -377,7 +382,10 @@ class PRQuestionsAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff_optimized, "question": question})
+            response = await chain.ainvoke(
+                {"diff": diff_optimized, "question": question},
+                config=self._trace_config(context, "pr_questions")
+            )
             
             return {"answer": response.content}
         except Exception as e:
@@ -411,7 +419,7 @@ class ChangelogAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff_optimized})
+            response = await chain.ainvoke({"diff": diff_optimized}, config=self._trace_config(context, "changelog"))
             
             content = response.content.strip()
             
@@ -433,9 +441,8 @@ class ChangelogAgent(BaseLLMAgent):
                     lines.append(f"- {entry.type}: {entry.description}")
                 changelog_entry = "\n".join(lines)
             except Exception as parse_err:
-                import logging
-                logging.warning(f"ChangelogAgent: Pydantic validation failed ({parse_err}). Falling back to raw response.")
-                changelog_entry = response.content
+                logger.warning(f"ChangelogAgent: Pydantic validation failed: {parse_err}")
+                raise ValueError(f"Invalid changelog response: {parse_err}") from parse_err
             
             return {"changelog_entry": changelog_entry}
         except Exception as e:
@@ -485,7 +492,7 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
                 "files_changed": details.get("files_changed", 0),
                 "additions": details.get("additions", 0),
                 "deletions": details.get("deletions", 0)
-            })
+            }, config=self._trace_config(context, "commit_pr_generator"))
             
             # Return raw markdown directly
             return {"pr_from_commit": response.content}
@@ -548,7 +555,7 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
                 "files_changed": comparison.get("files_changed", 0),
                 "additions": comparison.get("additions", 0),
                 "deletions": comparison.get("deletions", 0)
-            })
+            }, config=self._trace_config(context, "branch_pr_generator"))
             
             return {
                 "pr_from_branch": response.content,
@@ -582,7 +589,7 @@ class TestAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "test_analysis"))
             
             return {"testing_results": response.content}
         except Exception as e:
@@ -608,7 +615,7 @@ class PerformanceAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "performance_analysis"))
             
             return {"performance_analysis": response.content}
         except Exception as e:
@@ -666,7 +673,7 @@ class SecurityAgent(BaseLLMAgent):
             response = await chain.ainvoke({
                 "diff": diff[:20000],
                 "tool_output": tool_output[:5000] # Truncate to avoid context limit
-            })
+            }, config=self._trace_config(context, "security_analysis"))
             
             return {"security_analysis": response.content}
         except Exception as e:

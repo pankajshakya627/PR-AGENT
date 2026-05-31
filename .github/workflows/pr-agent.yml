@@ -54,7 +54,7 @@ on:
           # Anthropic models
           - claude-sonnet-4-5-20250929
           - claude-3-5-sonnet-20240620
-          # Nvidia models
+          # Models available via NVIDIA NIM endpoint
           - z-ai/glm-5.1
           - minimaxai/minimax-m2.7
           - stepfun-ai/step-3.5-flash
