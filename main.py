@@ -9,9 +9,7 @@ from fastmcp import FastMCP  # noqa: E402
 
 # Check PyGithub is installed
 try:
-    import importlib.util
-    if importlib.util.find_spec("github") is None:
-        raise ImportError()
+    import github
 except ImportError:
     print("\n❌ Error: 'PyGithub' not found.")
     print("Please ensure you are running in the virtual environment:")

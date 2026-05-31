@@ -11,3 +11,5 @@ streamlit-authenticator
 bcrypt>=4.0.0
 pylint
 bandit
+langchain-nvidia-ai-endpoints>=0.1.0
+

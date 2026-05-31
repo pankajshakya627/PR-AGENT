@@ -3,6 +3,8 @@ from src.agents.base import BaseAgent
 from src.state import PRAgentState
 from src.github_provider import GitHubProvider
 from src.config import get_llm_config
+from src.tenant import tenant_scoped
+
 from src.toon_io import to_toon, from_toon
 from langchain_core.prompts import ChatPromptTemplate
 import json
@@ -23,7 +25,7 @@ from src.prompts import (
 
 class BaseLLMAgent(BaseAgent):
     # Provider fallback order
-    PROVIDER_ORDER = ["groq", "openrouter", "openai", "anthropic"]
+    PROVIDER_ORDER = ["groq", "nvidia", "openrouter", "openai", "anthropic"]
     
     def __init__(self):
         config = get_llm_config()
@@ -59,6 +61,20 @@ class BaseLLMAgent(BaseAgent):
                 model=model,
                 base_url=config["groq_base_url"],
                 api_key=api_key,
+                temperature=config["temperature"],
+                max_tokens=config["max_tokens"]
+            )
+        elif provider == "nvidia":
+            api_key = os.getenv("NVIDIA_API_KEY")
+            if not api_key:
+                raise ValueError("NVIDIA_API_KEY not set")
+            from langchain_nvidia_ai_endpoints import ChatNVIDIA
+            model = config.get("nvidia_model") or "meta/llama2-70b"
+            base_url = config.get("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
+            return ChatNVIDIA(
+                model=model,
+                api_key=api_key,
+                base_url=base_url,
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
@@ -112,6 +128,7 @@ class BaseLLMAgent(BaseAgent):
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
+
     async def _get_diff(self, context: PRAgentState) -> str:
         pr_url = context.get("pr_url")
         if not pr_url:
@@ -121,9 +138,13 @@ class BaseLLMAgent(BaseAgent):
         diff = github.get_pr_diff(pr_url)
         if not diff:
             raise ValueError("Empty diff")
-        return diff
+            
+        from src.memory import L1WorkingMemory
+        max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+        return L1WorkingMemory.optimize_diff_context(diff, max_chars)
 
 class CodeReviewAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         """
         Executes code review by analyzing the diff and running linters.
@@ -158,14 +179,23 @@ class CodeReviewAgent(BaseLLMAgent):
                 tool_output = f"Error running code analysis tools: {e}"
             # ------------------------------
             
+            from src.memory import L1WorkingMemory, L3SemanticMemory
+            max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+            diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
+            
+            # Retrieve semantic memory rules
+            semantic_rules = L3SemanticMemory.get_rules()
+            rules_prompt = "\n".join([f"- {r}" for r in semantic_rules])
+            system_prompt = f"{CODE_REVIEW_SYSTEM_PROMPT}\n\n**Additional Semantic Rules to Enforce**:\n{rules_prompt}"
+            
             prompt = ChatPromptTemplate.from_messages([
-                ("system", CODE_REVIEW_SYSTEM_PROMPT),
+                ("system", system_prompt),
                 ("user", CODE_REVIEW_USER_PROMPT)
             ])
 
             chain = prompt | self.llm
             response = await chain.ainvoke({
-                "diff": diff[:20000],
+                "diff": diff_optimized,
                 "tool_output": tool_output[:5000]
             })
             
@@ -182,6 +212,7 @@ class CodeReviewAgent(BaseLLMAgent):
         return []
 
 class PRDescriptionAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -206,6 +237,7 @@ class PRDescriptionAgent(BaseLLMAgent):
         return []
 
 class CodeImprovementAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -230,18 +262,37 @@ class CodeImprovementAgent(BaseLLMAgent):
         return []
 
 class PRQuestionsAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
+            from src.memory import L1WorkingMemory, L2EpisodicMemory
             diff = await self._get_diff(context)
-            question = context.get("question", "What does this PR do?")
+            question = context.get("question", "")
+            
+            max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+            diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
+            
+            pr_url = context.get("pr_url") or ""
+            episodes = L2EpisodicMemory.retrieve_episodes(pr_url)
+            
+            # Format episodes/trajectories
+            episodes_context = ""
+            if episodes:
+                episodes_context = "\n\n**Episode Execution Trajectories (L2 Episodic Memory)**:\n"
+                for name, ep in episodes.items():
+                    data_str = str(ep["data"])[:2500]  # Keep high-density episodic scope
+                    data_str = data_str.replace("{", "{{").replace("}", "}}")
+                    episodes_context += f"### Episode: {name} (Recorded: {ep['timestamp']})\n{data_str}\n\n"
+            
+            system_prompt = f"{PR_QUESTIONS_SYSTEM_PROMPT}{episodes_context}"
             
             prompt = ChatPromptTemplate.from_messages([
-                ("system", PR_QUESTIONS_SYSTEM_PROMPT),
+                ("system", system_prompt),
                 ("user", PR_QUESTIONS_USER_PROMPT)
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000], "question": question})
+            response = await chain.ainvoke({"diff": diff_optimized, "question": question})
             
             return {"answer": response.content}
         except Exception as e:
@@ -254,9 +305,14 @@ class PRQuestionsAgent(BaseLLMAgent):
         return []
 
 class ChangelogAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
+            from src.memory import L1WorkingMemory
             diff = await self._get_diff(context)
+            
+            max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+            diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
             
             prompt = ChatPromptTemplate.from_messages([
                 ("system", CHANGELOG_SYSTEM_PROMPT),
@@ -264,10 +320,22 @@ class ChangelogAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff_optimized})
             
-            # Return raw markdown directly
-            return {"changelog_entry": response.content}
+            content = response.content
+            # Handle TOON format in case of mock output or specific system structures
+            if "entries" in content or "entries[" in content:
+                from src.toon_io import from_toon
+                parsed = from_toon(content)
+                if isinstance(parsed, dict) and "entries" in parsed:
+                    lines = []
+                    for entry in parsed["entries"]:
+                        t = entry.get("type", "")
+                        d = entry.get("description", "")
+                        lines.append(f"- {t}: {d}")
+                    content = "\n".join(lines)
+            
+            return {"changelog_entry": content}
         except Exception as e:
             return {"changelog_entry": f"Error: {str(e)}"}
 
@@ -292,8 +360,13 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
         
         if not diff:
             raise ValueError("Empty diff")
-        return diff, details
+            
+        from src.memory import L1WorkingMemory
+        max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+        diff_opt = L1WorkingMemory.optimize_diff_context(diff, max_chars)
+        return diff_opt, details
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff, details = await self._get_commit_diff_and_details(context)
@@ -327,6 +400,7 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
 class BranchPRGeneratorAgent(BaseLLMAgent):
     """Agent that generates PR title and description by comparing two branches."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             repo_name = context.get("repo_name")
@@ -396,6 +470,7 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
 class TestAgent(BaseLLMAgent):
     """Agent for analyzing test coverage and suggesting tests."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -421,6 +496,7 @@ class TestAgent(BaseLLMAgent):
 class PerformanceAgent(BaseLLMAgent):
     """Agent for analyzing code performance and complexity."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -446,6 +522,7 @@ class PerformanceAgent(BaseLLMAgent):
 class SecurityAgent(BaseLLMAgent):
     """Agent for analyzing security vulnerabilities."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -506,6 +583,7 @@ class TestingAgent(TestAgent):
     pass
 
 class DocumentationAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         return {"documentation": "Documentation agent not fully implemented yet."}
     async def validate_input(self, context: PRAgentState) -> bool:

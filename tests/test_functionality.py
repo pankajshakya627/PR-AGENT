@@ -54,7 +54,7 @@ with patch("src.github_provider.GitHubProvider", return_value=mock_github_provid
             update_changelog
         )
 
-        async def test_tools():
+        async def run_tools():
             print("Testing FastMCP Tools Functionality...")
 
             # 1. Test review_pr
@@ -155,4 +155,4 @@ feat,Test feature
                 print(f"  ❌ update_changelog threw exception: {e}")
 
         if __name__ == "__main__":
-            asyncio.run(test_tools())
+            asyncio.run(run_tools())

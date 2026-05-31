@@ -34,6 +34,23 @@ graph TB
     Orchestrator -->|Post Comments| GitHub
 ```
 
+## 🔒 Multi-Tenant Security & 🧠 Three-Tiered Cognitive Memory Architecture
+
+PR-Agent implements an enterprise-grade multi-tenant security architecture and a **Three-Tiered Cognitive Memory Architecture** to guarantee absolute data isolation, high-performance context processing, and smart episodic context retrieval:
+
+### 1. 🔒 Enterprise Multi-Tenant Security & Isolation
+
+* **Contextvars-Based Propagation**: Uses Python `contextvars` to safely propagate `tenant_id` across asynchronous context switches and concurrent threads.
+* **Tenant-Scoped Caching**: An isolated caching mechanism (`_tenant_cache`) that automatically scopes cache keys strictly by the active tenant ID to prevent any potential cross-tenant cache pollution.
+* **Structured Auditing**: Formats and logs every tenant action (e.g., agent runs, cache queries) into `config/tenant_audit.log` for transparency and compliance.
+* **Prompt Injection Protection**: Dynamic instruction hierarchy overrides that bind prompt execution scopes strictly within the active tenant boundaries.
+
+### 2. 🧠 Three-Tiered Cognitive Memory Architecture
+
+* **Tier 1: Working Memory (L1 - Immediate Focus)**: Employs high-density KV Cache prefix optimization and sliding-window diff slicing (`L1WorkingMemory.optimize_diff_context`) to fit large files into the active context window and prevent token limit overflows.
+* **Tier 2: Episodic Memory (L2 - Events & Trajectories)**: Implements experience replay per tenant. Automatically logs execution results of successful agent trajectories and allows `PRQuestionsAgent` to retrieve past episodes to answer complex questions about past turns.
+* **Tier 3: Semantic Memory (L3 - Facts & Rules)**: Enforces persistent style guidelines and custom team rules per tenant. Team rules are registered dynamically and injected into the LLM system prompt for strict guidelines enforcement.
+
 ## 📂 Directory Structure
 
 ```plaintext

@@ -127,3 +127,56 @@ async def test_code_review_agent_with_tool(mock_llm_config, mock_chain, state):
             mock_gh_instance.get_pr_files_content.assert_called_once()
             agent._run_tool.assert_called_once()
             assert "code_review" in result
+
+
+@pytest.mark.asyncio
+async def test_pr_questions_agent(mock_llm_config, mock_chain, state):
+    from src.agents.specialized import PRQuestionsAgent
+    with patch("src.agents.specialized.BaseLLMAgent._create_llm", return_value=MagicMock()):
+        agent = PRQuestionsAgent()
+        agent.llm = MagicMock()
+        
+        agent._get_diff = AsyncMock(return_value="diff content")
+        
+        with patch("src.agents.specialized.ChatPromptTemplate.from_messages") as mock_prompt:
+            mock_prompt_obj = MagicMock()
+            mock_prompt.return_value = mock_prompt_obj
+            mock_chain_obj = AsyncMock()
+            mock_chain_obj.ainvoke.return_value = MagicMock(content="Answer to question")
+            mock_prompt_obj.__or__.return_value = mock_chain_obj
+            
+            state["question"] = "What does this PR do?"
+            result = await agent.execute(state)
+            
+            assert "answer" in result
+            assert result["answer"] == "Answer to question"
+
+
+@pytest.mark.asyncio
+async def test_changelog_agent(mock_llm_config, mock_chain, state):
+    import os
+    os.environ["ENABLE_CACHING"] = "False"
+    from src.agents.specialized import ChangelogAgent
+    with patch("src.agents.specialized.BaseLLMAgent._create_llm", return_value=MagicMock()):
+        agent = ChangelogAgent()
+        agent.llm = MagicMock()
+        
+        agent._get_diff = AsyncMock(return_value="diff content")
+        
+        with patch("src.agents.specialized.ChatPromptTemplate.from_messages") as mock_prompt:
+            mock_prompt_obj = MagicMock()
+            mock_prompt.return_value = mock_prompt_obj
+            mock_chain_obj = AsyncMock()
+            
+            # Test standard markdown response
+            mock_chain_obj.ainvoke.return_value = MagicMock(content="- Added: new functionality")
+            mock_prompt_obj.__or__.return_value = mock_chain_obj
+            
+            result = await agent.execute(state)
+            assert "changelog_entry" in result
+            assert result["changelog_entry"] == "- Added: new functionality"
+            
+            # Test TOON mock response parsing
+            mock_chain_obj.ainvoke.return_value = MagicMock(content="entries[1]{type,description}:\nfeat,Test feature")
+            result_toon = await agent.execute(state)
+            assert result_toon["changelog_entry"] == "- feat: Test feature"

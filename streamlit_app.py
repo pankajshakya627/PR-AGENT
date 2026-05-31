@@ -499,7 +499,7 @@ with st.sidebar:
     st.subheader("LLM Provider")
     provider = st.selectbox(
         "Select Provider",
-        options=['groq', 'openrouter', 'openai', 'anthropic', 'local'],
+        options=['groq', 'nvidia', 'openrouter', 'openai', 'anthropic', 'local'],
         index=0,
         help="Choose your LLM provider"
     )
@@ -614,6 +614,32 @@ with st.sidebar:
         )
         if model:
             os.environ['LOCAL_LLM_MODEL'] = model
+            
+    elif provider == 'nvidia':
+        api_key = st.text_input(
+            "NVIDIA API Key",
+            value=os.getenv('NVIDIA_API_KEY', ''),
+            type="password",
+            help="Your NVIDIA API key (free at build.nvidia.com)"
+        )
+        if api_key:
+            os.environ['NVIDIA_API_KEY'] = api_key
+            
+        base_url = st.text_input(
+            "Base URL",
+            value=os.getenv('NVIDIA_BASE_URL', 'https://integrate.api.nvidia.com/v1'),
+            help="NVIDIA API endpoint or local Ollama base URL"
+        )
+        if base_url:
+            os.environ['NVIDIA_BASE_URL'] = base_url
+            
+        model = st.text_input(
+            "Model Name",
+            value=os.getenv('NVIDIA_MODEL', 'meta/llama2-70b'),
+            help="NVIDIA or Ollama model name"
+        )
+        if model:
+            os.environ['NVIDIA_MODEL'] = model
     
     # Context Size limit (General Setting)
     st.divider()
@@ -637,10 +663,33 @@ with st.sidebar:
         "max_tokens": config_display["max_tokens"],
         "max_context_chars": config_display.get("max_context_chars", 12000)
     })
+    
+    st.divider()
+    st.subheader("🛡️ Security Audit Logs")
+    with st.expander("View Access Audit Trails"):
+        from src.tenant import get_tenant_audit_logs
+        logs = get_tenant_audit_logs(limit=25)
+        if logs:
+            # Display inside a scrollable box
+            logs_formatted = "\n".join(logs)
+            st.text_area("Audit Trails", value=logs_formatted, height=200, disabled=True)
+        else:
+            st.caption("No audit events recorded yet.")
 
 # Main content
 st.title("🤖 PR-Agent Interactive UI")
 st.markdown("*Analyze Pull Requests with AI-powered insights*")
+
+# Tenant Isolation Badge
+st.markdown(f"""
+<div style="display: flex; gap: 12px; align-items: center; background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); padding: 12px 18px; border-radius: 12px; margin-bottom: 22px; margin-top: 10px;">
+    <span style="font-size: 1.4rem;">🔒</span>
+    <div>
+        <strong style="color: #7c3aed; font-size: 1.05rem;">Tenant Isolation: Level 1 Metadata Filtering Enabled</strong><br/>
+        <span style="color: #a0aec0; font-size: 0.9rem;">Active Scope: <strong>{st.session_state.get('username', 'default_tenant')}</strong> (Strict boundary segregation active)</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # Tool selection
 st.subheader("🛠️ Select Analysis Tool")
@@ -765,6 +814,9 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                     state = {"pr_url": pr_url}
                 if additional_input:
                     state["question"] = additional_input
+                
+                # Inject active tenant context strictly before execution
+                state["tenant_id"] = st.session_state.get("username", "default_tenant")
                 
                 # Run analysis
                 result = asyncio.run(agent.execute(state))
