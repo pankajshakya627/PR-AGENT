@@ -55,8 +55,9 @@ on:
           - claude-sonnet-4-5-20250929
           - claude-3-5-sonnet-20240620
           # Nvidia models
-          - meta/llama-3.1-70b-instruct
-          - meta/llama-3.1-8b-instruct
+          - z-ai/glm-5.1
+          - minimaxai/minimax-m2.7
+          - stepfun-ai/step-3.5-flash
 
 permissions:
   contents: read
