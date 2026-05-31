@@ -20,6 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
+AGENT.md
+CLAUDE.md
+
+
 # Virtual Environment
 venv/
 env/

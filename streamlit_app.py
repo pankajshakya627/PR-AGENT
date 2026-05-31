@@ -30,6 +30,7 @@ import asyncio
 import os
 import sys
 import re
+import secrets
 from pathlib import Path
 import datetime
 
@@ -39,38 +40,70 @@ sys.path.insert(0, str(project_root))
 
 # Config file path
 CONFIG_FILE = project_root / "config" / "auth_config.yaml"
+KNOWN_ADMIN123_HASH = "$2b$12$G5j7jSSt8xOE9yICktUqGuIT3GrJGxHTvSqvWDJVtlcEOxtjH.CLy"
 
+_secure_auth_key = None
 
 def load_config():
-    """Load authentication config from YAML file."""
+    """Load authentication config from YAML file with environment overrides."""
+    config = None
     if not CONFIG_FILE.exists():
         # Create default config
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         default_config = {
             'credentials': {
-                'usernames': {
-                    'admin': {
-                        'email': 'admin@pragent.com',
-                        'name': 'Administrator',
-                        'password': bcrypt.hashpw('admin123'.encode(), bcrypt.gensalt()).decode()
-                    }
-                }
+                'usernames': {}
             },
             'cookie': {
                 'expiry_days': 30,
-                'key': 'pr_agent_auth_secret_key',
+                'key': secrets.token_hex(32),  # Dynamically generate secure default key
                 'name': 'pr_agent_auth'
             },
             'pre-authorized': {
-                'emails': ['admin@pragent.com']
+                'emails': []
             }
         }
+        admin_hash = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
+        if admin_hash:
+            default_config['credentials']['usernames']['admin'] = {
+                'email': 'admin@pragent.com',
+                'name': 'Administrator',
+                'password': admin_hash
+            }
+            default_config['pre-authorized']['emails'].append('admin@pragent.com')
         with open(CONFIG_FILE, 'w') as f:
             yaml.dump(default_config, f)
-        return default_config
-    
-    with open(CONFIG_FILE) as f:
-        return yaml.load(f, Loader=SafeLoader)
+        config = default_config
+    else:
+        with open(CONFIG_FILE) as f:
+            config = yaml.load(f, Loader=SafeLoader)
+            
+    # Apply dynamic secure key generation if weak static default is detected
+    global _secure_auth_key
+    if 'cookie' in config:
+        cookie_key = os.getenv("AUTH_COOKIE_KEY")
+        if cookie_key and cookie_key.strip():
+            config['cookie']['key'] = cookie_key.strip()
+        elif config['cookie'].get('key') in ('pr_agent_auth_secret_key', 'YOUR_SECRET_KEY_HERE', '', None):
+            if not _secure_auth_key:
+                _secure_auth_key = secrets.token_hex(32)
+            config['cookie']['key'] = _secure_auth_key
+            
+    # Apply environment overrides for user credentials to prevent committing password hashes
+    if 'credentials' in config and 'usernames' in config['credentials']:
+        usernames = config['credentials']['usernames']
+        for user, env_var in [('admin', 'ADMIN_PASSWORD_HASH'), ('pankaj', 'PANKAJ_PASSWORD_HASH')]:
+            pwd_hash = os.getenv(env_var)
+            if pwd_hash and pwd_hash.strip():
+                if user not in usernames:
+                    usernames[user] = {'email': f'{user}@pragent.com', 'name': user.capitalize()}
+                usernames[user]['password'] = pwd_hash.strip()
+        admin_user = usernames.get('admin')
+        unsafe_admin_passwords = {KNOWN_ADMIN123_HASH, "CHANGE_ME_IMMEDIATELY", "", None}
+        if admin_user and admin_user.get('password') in unsafe_admin_passwords and not os.getenv("ADMIN_PASSWORD_HASH"):
+            usernames.pop('admin')
+                
+    return config
 
 
 def save_config(config):
@@ -499,7 +532,7 @@ with st.sidebar:
     st.subheader("LLM Provider")
     provider = st.selectbox(
         "Select Provider",
-        options=['groq', 'openrouter', 'openai', 'anthropic', 'local'],
+        options=['groq', 'nvidia', 'openrouter', 'openai', 'anthropic', 'local'],
         index=0,
         help="Choose your LLM provider"
     )
@@ -614,6 +647,32 @@ with st.sidebar:
         )
         if model:
             os.environ['LOCAL_LLM_MODEL'] = model
+            
+    elif provider == 'nvidia':
+        api_key = st.text_input(
+            "NVIDIA API Key",
+            value=os.getenv('NVIDIA_API_KEY', ''),
+            type="password",
+            help="Your NVIDIA API key (free at build.nvidia.com)"
+        )
+        if api_key:
+            os.environ['NVIDIA_API_KEY'] = api_key
+            
+        base_url = st.text_input(
+            "Base URL",
+            value=os.getenv('NVIDIA_BASE_URL', 'https://integrate.api.nvidia.com/v1'),
+            help="NVIDIA API endpoint or local Ollama base URL"
+        )
+        if base_url:
+            os.environ['NVIDIA_BASE_URL'] = base_url
+            
+        model = st.text_input(
+            "Model Name",
+            value=os.getenv('NVIDIA_MODEL', 'nvidia/nemotron-3-super-120b-a12b'),
+            help="NVIDIA or Ollama model name"
+        )
+        if model:
+            os.environ['NVIDIA_MODEL'] = model
     
     # Context Size limit (General Setting)
     st.divider()
@@ -626,6 +685,42 @@ with st.sidebar:
         help="Limit input size (diff) to avoid context overflow. ~4 chars = 1 token. Decrease if getting 400 errors."
     )
     os.environ['LLM_MAX_CONTEXT_CHARS'] = str(max_context)
+
+    # Optional Langfuse observability
+    st.divider()
+    st.subheader("Langfuse Observability")
+    langfuse_enabled = st.checkbox(
+        "Enable Langfuse tracing",
+        value=os.getenv('LANGFUSE_ENABLED', '').lower() in ('1', 'true', 'yes', 'on') or bool(os.getenv('LANGFUSE_PUBLIC_KEY')),
+        help="Capture LangChain traces for monitoring, debugging, latency, and token usage."
+    )
+    os.environ['LANGFUSE_ENABLED'] = "true" if langfuse_enabled else "false"
+    if langfuse_enabled:
+        public_key = st.text_input(
+            "Langfuse Public Key",
+            value=os.getenv('LANGFUSE_PUBLIC_KEY', ''),
+            type="password",
+            help="Your Langfuse project public key"
+        )
+        if public_key:
+            os.environ['LANGFUSE_PUBLIC_KEY'] = public_key
+
+        secret_key = st.text_input(
+            "Langfuse Secret Key",
+            value=os.getenv('LANGFUSE_SECRET_KEY', ''),
+            type="password",
+            help="Your Langfuse project secret key"
+        )
+        if secret_key:
+            os.environ['LANGFUSE_SECRET_KEY'] = secret_key
+
+        base_url = st.text_input(
+            "Langfuse Base URL",
+            value=os.getenv('LANGFUSE_BASE_URL', 'https://cloud.langfuse.com'),
+            help="Use https://us.cloud.langfuse.com for the US region"
+        )
+        if base_url:
+            os.environ['LANGFUSE_BASE_URL'] = base_url
     
     # Current configuration display
     st.divider()
@@ -635,12 +730,36 @@ with st.sidebar:
         "provider": config_display["provider"],
         "temperature": config_display["temperature"],
         "max_tokens": config_display["max_tokens"],
-        "max_context_chars": config_display.get("max_context_chars", 12000)
+        "max_context_chars": config_display.get("max_context_chars", 12000),
+        "langfuse_tracing": os.getenv('LANGFUSE_ENABLED', 'false')
     })
+    
+    st.divider()
+    st.subheader("🛡️ Security Audit Logs")
+    with st.expander("View Access Audit Trails"):
+        from src.tenant import get_tenant_audit_logs
+        logs = get_tenant_audit_logs(limit=25)
+        if logs:
+            # Display inside a scrollable box
+            logs_formatted = "\n".join(logs)
+            st.text_area("Audit Trails", value=logs_formatted, height=200, disabled=True)
+        else:
+            st.caption("No audit events recorded yet.")
 
 # Main content
 st.title("🤖 PR-Agent Interactive UI")
 st.markdown("*Analyze Pull Requests with AI-powered insights*")
+
+# Tenant Isolation Badge
+st.markdown(f"""
+<div style="display: flex; gap: 12px; align-items: center; background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); padding: 12px 18px; border-radius: 12px; margin-bottom: 22px; margin-top: 10px;">
+    <span style="font-size: 1.4rem;">🔒</span>
+    <div>
+        <strong style="color: #7c3aed; font-size: 1.05rem;">Tenant Isolation: Level 1 Metadata Filtering Enabled</strong><br/>
+        <span style="color: #a0aec0; font-size: 0.9rem;">Active Scope: <strong>{st.session_state.get('username', 'default_tenant')}</strong> (Strict boundary segregation active)</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 # Tool selection
 st.subheader("🛠️ Select Analysis Tool")
@@ -765,6 +884,9 @@ if st.button("🚀 Run Analysis", type="primary", use_container_width=True):
                     state = {"pr_url": pr_url}
                 if additional_input:
                     state["question"] = additional_input
+                
+                # Inject active tenant context strictly before execution
+                state["tenant_id"] = st.session_state.get("username", "default_tenant")
                 
                 # Run analysis
                 result = asyncio.run(agent.execute(state))
@@ -1011,4 +1133,3 @@ if st.session_state.get('last_pr_content') and (st.session_state.get('last_commi
                 st.error(f"❌ Error creating PR: {str(e)}")
     else:
         st.warning("⚠️ Enter the source branch name to create a PR")
-

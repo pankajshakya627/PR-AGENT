@@ -54,7 +54,7 @@ with patch("src.github_provider.GitHubProvider", return_value=mock_github_provid
             update_changelog
         )
 
-        async def test_tools():
+        async def run_tools():
             print("Testing FastMCP Tools Functionality...")
 
             # 1. Test review_pr
@@ -140,10 +140,7 @@ file.py,Test improvement,code
 
             # 5. Test update_changelog
             print("\nTesting update_changelog...")
-            mock_llm.ainvoke.return_value = create_response("""
-entries[1]{type,description}:
-feat,Test feature
-""")
+            mock_llm.ainvoke.return_value = create_response('{"entries": [{"type": "feat", "description": "Test feature"}]}')
             try:
                 result = await update_changelog.fn("https://github.com/owner/repo/pull/1")
                 print(f"Result: {result}")
@@ -155,4 +152,4 @@ feat,Test feature
                 print(f"  ❌ update_changelog threw exception: {e}")
 
         if __name__ == "__main__":
-            asyncio.run(test_tools())
+            asyncio.run(run_tools())

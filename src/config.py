@@ -4,7 +4,7 @@ from typing import Dict, Any, Literal
 # ============================================================================
 # LLM Configuration
 # ============================================================================
-# Provider options: "openai", "anthropic", "local", "openrouter", "groq"
+# Provider options: "openai", "anthropic", "local", "openrouter", "groq", "nvidia"
 # Set via environment variable LLM_PROVIDER (default: openrouter)
 
 LLM_CONFIG = {
@@ -28,8 +28,12 @@ LLM_CONFIG = {
     "local_base_url": os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:12434/engines/llama.cpp/v1"),
     "local_model": os.getenv("LOCAL_LLM_MODEL", "ai/llama3.2:latest"),
     
+    # NVIDIA Configuration
+    "nvidia_model": os.getenv("NVIDIA_MODEL", "minimaxai/minimax-m2.7"),
+    "nvidia_base_url": os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+    
     # Shared Settings
-    "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
+    "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
     "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "8000")),  # Increased default for larger models
 }
 
@@ -82,6 +86,10 @@ def get_llm_config() -> Dict[str, Any]:
         "local_base_url": os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:12434/engines/llama.cpp/v1"),
         "local_model": os.getenv("LOCAL_LLM_MODEL", "ai/llama3.2:latest"),
         
+        # NVIDIA Configuration
+        "nvidia_model": os.getenv("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
+        "nvidia_base_url": os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
+        
         # Shared Settings
         "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
         "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "8000")),
@@ -97,6 +105,9 @@ def get_llm_config() -> Dict[str, Any]:
         api_keys_present.append("OpenRouter")
     if os.getenv("LOCAL_LLM_BASE_URL"):
         api_keys_present.append("Local")
+    if os.getenv("NVIDIA_API_KEY"):
+        api_keys_present.append("Nvidia")
+
     
     if len(api_keys_present) > 1:
         logger.warning(f"⚠️  Multiple LLM configurations detected: {', '.join(api_keys_present)}. Using: {config['provider']}")

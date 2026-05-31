@@ -32,6 +32,7 @@ on:
           - openrouter
           - openai
           - anthropic
+          - nvidia
       model:
         description: 'Model name (pick based on provider)'
         required: false
@@ -53,6 +54,10 @@ on:
           # Anthropic models
           - claude-sonnet-4-5-20250929
           - claude-3-5-sonnet-20240620
+          # Models available via NVIDIA NIM endpoint
+          - z-ai/glm-5.1
+          - minimaxai/minimax-m2.7
+          - stepfun-ai/step-3.5-flash
 
 permissions:
   contents: read
@@ -131,11 +136,13 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           LLM_PROVIDER: ${{ inputs.provider || vars.LLM_PROVIDER || 'openrouter' }}
           OPENROUTER_MODEL: ${{ inputs.model || vars.OPENROUTER_MODEL || '' }}
           GROQ_MODEL: ${{ inputs.model || vars.GROQ_MODEL || '' }}
           OPENAI_MODEL: ${{ inputs.model || vars.OPENAI_MODEL || '' }}
           ANTHROPIC_MODEL: ${{ inputs.model || vars.ANTHROPIC_MODEL || '' }}
+          NVIDIA_MODEL: ${{ inputs.model || vars.NVIDIA_MODEL || '' }}
         run: |
           echo "🤖 Using provider: $LLM_PROVIDER"
           if [ -n "${{ inputs.model }}" ]; then
@@ -189,6 +196,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'openrouter' }}
         run: |
           python cli.py \

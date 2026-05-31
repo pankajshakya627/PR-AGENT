@@ -34,6 +34,56 @@ graph TB
     Orchestrator -->|Post Comments| GitHub
 ```
 
+## 🔒 Multi-Tenant Security & 🧠 Three-Tiered Cognitive Memory Architecture
+
+PR-Agent implements an enterprise-grade multi-tenant security architecture and a **Three-Tiered Cognitive Memory Architecture** to guarantee absolute data isolation, high-performance context processing, and smart episodic context retrieval:
+
+### 1. 🔒 Enterprise Multi-Tenant Security & Isolation
+
+* **Contextvars-Based Propagation**: Uses Python `contextvars` to safely propagate `tenant_id` across asynchronous context switches and concurrent threads.
+* **Tenant-Scoped Caching**: An isolated caching mechanism (`_tenant_cache`) that automatically scopes cache keys strictly by the active tenant ID to prevent any potential cross-tenant cache pollution.
+* **Structured Auditing**: Formats and logs every tenant action (e.g., agent runs, cache queries) into `config/tenant_audit.log` for transparency and compliance.
+* **Prompt Injection Protection**: Dynamic instruction hierarchy overrides that bind prompt execution scopes strictly within the active tenant boundaries.
+
+### 2. 🧠 Three-Tiered Cognitive Memory Architecture
+
+* **Tier 1: Working Memory (L1 - Immediate Focus)**: Employs high-density KV Cache prefix optimization and sliding-window diff slicing (`L1WorkingMemory.optimize_diff_context`) to fit large files into the active context window and prevent token limit overflows.
+* **Tier 2: Episodic Memory (L2 - Events & Trajectories)**: Implements experience replay per tenant. Automatically logs execution results of successful agent trajectories and allows `PRQuestionsAgent` to retrieve past episodes to answer complex questions about past turns.
+* **Tier 3: Semantic Memory (L3 - Facts & Rules)**: Enforces persistent style guidelines and custom team rules per tenant. Team rules are registered dynamically and injected into the LLM system prompt for strict guidelines enforcement.
+
+### 3. ⚙️ Active Configuration & Usage
+
+#### Setting/Managing Tenant Isolation
+
+By default, the supervisor orchestrator and all specialized agents resolve the current tenant scope automatically based on the active thread or async task `contextvars`. You can manage it programmatically or via environment variables:
+
+* **Environment Variable Override**: Set the primary tenant context using `DEFAULT_TENANT_ID`.
+
+  ```bash
+  export DEFAULT_TENANT_ID="enterprise_client_a"
+  ```
+
+* **Programmatic Assignment**: Scope agent executions dynamically within specific tenant namespaces in your Python code:
+
+  ```python
+  from src.tenant import set_current_tenant_id, tenant_scoped
+
+  # Programmatic propagation across execution contexts
+  set_current_tenant_id("customer_account_b")
+  ```
+
+#### Registering Semantic Style Guidelines (L3)
+
+You can append custom guidelines or business rules directly into the L3 Semantic Memory layer per tenant to guide review logic:
+
+```python
+from src.memory import L3SemanticMemory
+from src.tenant import set_current_tenant_id
+
+set_current_tenant_id("engineering_team_x")
+L3SemanticMemory.register_rule("All public REST endpoints must include explicit OAuth decorators.")
+```
+
 ## 📂 Directory Structure
 
 ```plaintext
@@ -58,9 +108,12 @@ pr-agent/
 │   ├── github_commenter.py  # GitHub PR commenting
 │   ├── github_provider.py   # GitHub API interaction
 │   ├── graph.py             # LangGraph orchestration
+│   ├── memory.py            # Three-tiered cognitive memory system
 │   ├── prompts.py           # Centralized LLM prompts
+│   ├── schemas.py           # Pydantic validation schemas
 │   ├── state.py             # Agent state definitions
-│   ├── toon_io.py           # Structured output parser
+│   ├── tenant.py            # Async-safe multi-tenant isolation
+│   ├── tracing.py           # Optional Langfuse tracing integration
 │   └── utils.py             # Utility functions
 ├── 📂 tests/                # Test suite
 │   ├── test_functionality.py
@@ -107,7 +160,29 @@ pr-agent/
 - **Flow:** Claude/IDE → MCP Protocol → `main.py` → `app.ainvoke()` → Agents → Response
 - **Tools:** Exposes `review_pr`, `describe_pr`, `ask_pr`, etc.
 
-### 3. 🚀 GitHub Actions (CI/CD Mode)
+### 3. 📈 Langfuse Tracing & Monitoring
+
+PR-Agent can emit LangChain/LangGraph traces to Langfuse for monitoring LLM calls, fallbacks, latency, token usage, and per-tenant agent behavior. Tracing is optional and stays disabled unless Langfuse credentials are configured.
+
+```bash
+export LANGFUSE_PUBLIC_KEY="pk-lf-..."
+export LANGFUSE_SECRET_KEY="sk-lf-..."
+# PR-Agent accepts LANGFUSE_BASE_URL and maps it to the SDK's LANGFUSE_HOST.
+export LANGFUSE_BASE_URL="https://cloud.langfuse.com"
+# Optional explicit switch. Credentials alone also enable tracing.
+export LANGFUSE_ENABLED=true
+```
+
+Each specialized agent invocation is traced with:
+
+- `langfuse_user_id`: active `tenant_id`
+- `langfuse_session_id`: PR URL, commit URL, or branch comparison key
+- tags: `pr-agent` plus the agent run name
+- metadata: tenant, agent name, and active LLM provider
+
+This follows the Langfuse tracing model of one trace per system invocation and session grouping around the PR under review.
+
+### 4. 🚀 GitHub Actions (CI/CD Mode)
 
 **Interaction:** Validates code automatically on every Pull Request.
 
@@ -115,7 +190,7 @@ pr-agent/
 - **Flow:** PR Event → GitHub Action → `cli.py` → `GitHubProvider` → Agents → PR Comment
 - **Triggers:** `opened`, `synchronize`, `reopened` events or manual `workflow_dispatch`.
 
-### 4. 🤖 Specialized Agent Squad
+### 5. 🤖 Specialized Agent Squad
 
 The system deploys a squad of specialized agents, each acting as a "Staff Engineer" in their domain:
 
@@ -130,7 +205,7 @@ The system deploys a squad of specialized agents, each acting as a "Staff Engine
 **Hybrid Neuro-Symbolic Analysis**:
 Agents don't just "guess" based on the diff. They run actual static analysis tools (like `pylint` and `bandit`) on the code, ingest the structured output, and then use the LLM to interpret the results and provide actionable fixes.
 
-### 5. 🧠 Knowledge Base (RAG)
+### 6. 🧠 Knowledge Base (RAG)
 
 _Note: This component is in active development._
 

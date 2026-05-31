@@ -3,11 +3,16 @@ from src.agents.base import BaseAgent
 from src.state import PRAgentState
 from src.github_provider import GitHubProvider
 from src.config import get_llm_config
-from src.toon_io import to_toon, from_toon
+from src.tenant import tenant_scoped
+from src.tracing import build_langfuse_config
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 import json
 import os
 import tempfile
+import logging
+import threading
+import asyncio
 from src.prompts import (
     CODE_REVIEW_SYSTEM_PROMPT, CODE_REVIEW_USER_PROMPT,
     PR_DESCRIPTION_SYSTEM_PROMPT, PR_DESCRIPTION_USER_PROMPT,
@@ -20,82 +25,186 @@ from src.prompts import (
     PERFORMANCE_AGENT_SYSTEM_PROMPT, PERFORMANCE_AGENT_USER_PROMPT,
     TEST_AGENT_SYSTEM_PROMPT, TEST_AGENT_USER_PROMPT
 )
+from src.schemas import ChangelogResponse
+from src.memory import L1WorkingMemory, L2EpisodicMemory, L3SemanticMemory
+
+logger = logging.getLogger(__name__)
+
+class FallbackLLMProxy(Runnable):
+    """
+    Stateless proxy subclassing LangChain's Runnable to handle execution failovers.
+    Thread-safe and async-safe across concurrent requests.
+    """
+    def __init__(self, agent: "BaseLLMAgent"):
+        self.agent = agent
+
+    def invoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        with self.agent._lock:
+            primary_provider = self.agent.provider
+
+        providers = [primary_provider] + [p for p in self.agent.PROVIDER_ORDER if p != primary_provider]
+        
+        last_error = None
+        for provider in providers:
+            try:
+                # Thread-safe client retrieval
+                current_llm = self.agent._get_llm(provider)
+                
+                res = current_llm.invoke(input, config=config, **kwargs)
+                
+                with self.agent._lock:
+                    if provider != self.agent.provider:
+                        logger.info(f"FallbackLLMProxy: Swapping active LLM provider from {self.agent.provider} to {provider}")
+                        self.agent.provider = provider
+                return res
+            except Exception as e:
+                last_error = e
+                logger.warning(f"FallbackLLMProxy: Fallback to {provider} failed during execution: {e}")
+                continue
+        raise last_error
+
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        async with self.agent._async_lock:
+            primary_provider = self.agent.provider
+
+        providers = [primary_provider] + [p for p in self.agent.PROVIDER_ORDER if p != primary_provider]
+        
+        last_error = None
+        for provider in providers:
+            try:
+                # Thread-safe client retrieval
+                current_llm = self.agent._get_llm(provider)
+                
+                res = await current_llm.ainvoke(input, config=config, **kwargs)
+                
+                async with self.agent._async_lock:
+                    if provider != self.agent.provider:
+                        logger.info(f"FallbackLLMProxy: Swapping active LLM provider from {self.agent.provider} to {provider}")
+                        self.agent.provider = provider
+                return res
+            except Exception as e:
+                last_error = e
+                logger.warning(f"FallbackLLMProxy: Fallback to {provider} failed during execution: {e}")
+                continue
+        raise last_error
+
+    def stream(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support stream()")
+
+    def batch(self, inputs: List[Any], config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support batch()")
+
+    async def astream(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support astream()")
+
+    async def abatch(self, inputs: List[Any], config: Any = None, **kwargs: Any) -> Any:
+        raise NotImplementedError("FallbackLLMProxy does not support abatch()")
 
 class BaseLLMAgent(BaseAgent):
     # Provider fallback order
-    PROVIDER_ORDER = ["groq", "openrouter", "openai", "anthropic"]
+    PROVIDER_ORDER = ["groq", "nvidia", "openrouter", "openai", "anthropic"]
     
     def __init__(self):
         config = get_llm_config()
         self.config = config
-        self.llm = None
         self.provider = None
         
-        # Try providers in order until one works
+        self._lock = threading.Lock()
+        self._async_lock = asyncio.Lock()
+        self._llm_cache: Dict[str, Any] = {}
+        
+        # Try providers in order until one works to set the primary provider
         providers_to_try = [config["provider"]] + [p for p in self.PROVIDER_ORDER if p != config["provider"]]
         
         for provider in providers_to_try:
             try:
-                self.llm = self._create_llm(provider, config)
+                # Pre-initialize and cache the primary provider
+                self._get_llm(provider)
                 self.provider = provider
                 break
             except Exception as e:
-                import logging
-                logging.warning(f"Failed to initialize {provider}: {e}, trying next provider...")
+                logger.warning(f"Failed to initialize {provider} client: {e}, trying next provider...")
                 continue
         
-        if self.llm is None:
+        if self.provider is None:
             raise ValueError("All LLM providers failed to initialize")
+            
+        self.llm = FallbackLLMProxy(self)
+
+    def _get_llm(self, provider: str) -> Any:
+        """Lazily cache and retrieve LLM client instances per provider (thread-safe)."""
+        with self._lock:
+            if provider not in self._llm_cache:
+                self._llm_cache[provider] = self._create_llm(provider, self.config)
+            return self._llm_cache[provider]
+
+    def _trace_config(self, context: PRAgentState, run_name: str) -> Any:
+        """Build optional LangChain tracing config for this agent invocation."""
+        return build_langfuse_config(context, run_name=run_name, provider=self.provider)
     
-    def _create_llm(self, provider: str, config: dict):
+    def _create_llm(self, provider: str, config: dict) -> Any:
         """Create LLM instance for given provider."""
         if provider == "groq":
             api_key = os.getenv("GROQ_API_KEY")
-            if not api_key:
-                raise ValueError("GROQ_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("GROQ_API_KEY not set or empty")
             from langchain_openai import ChatOpenAI
             model = config["groq_model"] or "llama-3.1-8b-instant"
             return ChatOpenAI(
                 model=model,
                 base_url=config["groq_base_url"],
-                api_key=api_key,
+                api_key=api_key.strip(),
+                temperature=config["temperature"],
+                max_tokens=config["max_tokens"]
+            )
+        elif provider == "nvidia":
+            api_key = os.getenv("NVIDIA_API_KEY")
+            if not api_key or not api_key.strip():
+                raise ValueError("NVIDIA_API_KEY not set or empty")
+            from langchain_nvidia_ai_endpoints import ChatNVIDIA
+            model = config.get("nvidia_model") or "z-ai/glm-5.1"
+            base_url = config.get("nvidia_base_url") or "https://integrate.api.nvidia.com/v1"
+            return ChatNVIDIA(
+                model=model,
+                api_key=api_key.strip(),
+                base_url=base_url,
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
         elif provider == "openrouter":
             api_key = os.getenv("OPENROUTER_API_KEY")
-            if not api_key:
-                raise ValueError("OPENROUTER_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("OPENROUTER_API_KEY not set or empty")
             from langchain_openai import ChatOpenAI
             model = config["openrouter_model"] or "xiaomi/mimo-v2-flash:free"
             return ChatOpenAI(
                 model=model,
                 base_url=config["openrouter_base_url"],
-                api_key=api_key,
+                api_key=api_key.strip(),
                 temperature=config["temperature"],
                 max_tokens=config["max_tokens"]
             )
         elif provider == "openai":
             api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("OPENAI_API_KEY not set or empty")
             from langchain_openai import ChatOpenAI
             model = config["openai_model"] or "gpt-4.1-mini"
             return ChatOpenAI(
                 model=model,
-                api_key=api_key,
+                api_key=api_key.strip(),
                 temperature=0.2,
                 max_tokens=config["max_tokens"]
             )
         elif provider == "anthropic":
             api_key = os.getenv("ANTHROPIC_API_KEY")
-            if not api_key:
-                raise ValueError("ANTHROPIC_API_KEY not set")
+            if not api_key or not api_key.strip():
+                raise ValueError("ANTHROPIC_API_KEY not set or empty")
             from langchain_anthropic import ChatAnthropic
             model = config["anthropic_model"] or "claude-sonnet-4-5-20250929"
             return ChatAnthropic(
                 model=model,
-                api_key=api_key,
+                api_key=api_key.strip(),
                 temperature=0.2,
                 max_tokens=config["max_tokens"]
             )
@@ -112,6 +221,7 @@ class BaseLLMAgent(BaseAgent):
         else:
             raise ValueError(f"Unsupported LLM provider: {provider}")
 
+
     async def _get_diff(self, context: PRAgentState) -> str:
         pr_url = context.get("pr_url")
         if not pr_url:
@@ -121,9 +231,12 @@ class BaseLLMAgent(BaseAgent):
         diff = github.get_pr_diff(pr_url)
         if not diff:
             raise ValueError("Empty diff")
-        return diff
+            
+        max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+        return L1WorkingMemory.optimize_diff_context(diff, max_chars)
 
 class CodeReviewAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         """
         Executes code review by analyzing the diff and running linters.
@@ -158,16 +271,24 @@ class CodeReviewAgent(BaseLLMAgent):
                 tool_output = f"Error running code analysis tools: {e}"
             # ------------------------------
             
+            max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+            diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
+            
+            # Retrieve semantic memory rules
+            semantic_rules = L3SemanticMemory.get_rules()
+            rules_prompt = "\n".join([f"- {r}" for r in semantic_rules])
+            system_prompt = f"{CODE_REVIEW_SYSTEM_PROMPT}\n\n**Additional Semantic Rules to Enforce**:\n{rules_prompt}"
+            
             prompt = ChatPromptTemplate.from_messages([
-                ("system", CODE_REVIEW_SYSTEM_PROMPT),
+                ("system", system_prompt),
                 ("user", CODE_REVIEW_USER_PROMPT)
             ])
 
             chain = prompt | self.llm
             response = await chain.ainvoke({
-                "diff": diff[:20000],
+                "diff": diff_optimized,
                 "tool_output": tool_output[:5000]
-            })
+            }, config=self._trace_config(context, "code_review"))
             
             # Return raw markdown directly - prompts output markdown now
             return {"code_review": response.content}
@@ -182,6 +303,7 @@ class CodeReviewAgent(BaseLLMAgent):
         return []
 
 class PRDescriptionAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -192,7 +314,7 @@ class PRDescriptionAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "pr_description"))
             
             # Return raw markdown directly
             return {"pr_description": response.content}
@@ -206,6 +328,7 @@ class PRDescriptionAgent(BaseLLMAgent):
         return []
 
 class CodeImprovementAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -216,7 +339,7 @@ class CodeImprovementAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "code_improvement"))
             
             # Return raw markdown directly
             return {"code_improvements": response.content}
@@ -230,18 +353,39 @@ class CodeImprovementAgent(BaseLLMAgent):
         return []
 
 class PRQuestionsAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
-            question = context.get("question", "What does this PR do?")
+            question = context.get("question", "")
+            
+            max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+            diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
+            
+            pr_url = context.get("pr_url") or ""
+            episodes = L2EpisodicMemory.retrieve_episodes(pr_url)
+            
+            # Format episodes/trajectories
+            episodes_context = ""
+            if episodes:
+                episodes_context = "\n\n**Episode Execution Trajectories (L2 Episodic Memory)**:\n"
+                for name, ep in episodes.items():
+                    data_str = str(ep["data"])[:2500]  # Keep high-density episodic scope
+                    data_str = data_str.replace("{", "{{").replace("}", "}}")
+                    episodes_context += f"### Episode: {name} (Recorded: {ep['timestamp']})\n{data_str}\n\n"
+            
+            system_prompt = f"{PR_QUESTIONS_SYSTEM_PROMPT}{episodes_context}"
             
             prompt = ChatPromptTemplate.from_messages([
-                ("system", PR_QUESTIONS_SYSTEM_PROMPT),
+                ("system", system_prompt),
                 ("user", PR_QUESTIONS_USER_PROMPT)
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000], "question": question})
+            response = await chain.ainvoke(
+                {"diff": diff_optimized, "question": question},
+                config=self._trace_config(context, "pr_questions")
+            )
             
             return {"answer": response.content}
         except Exception as e:
@@ -254,20 +398,53 @@ class PRQuestionsAgent(BaseLLMAgent):
         return []
 
 class ChangelogAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
             
+            max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+            diff_optimized = L1WorkingMemory.optimize_diff_context(diff, max_chars)
+            
+            system_prompt = (
+                f"{CHANGELOG_SYSTEM_PROMPT}\n\n"
+                "**Response Requirement**:\n"
+                "You MUST respond with a valid JSON object matching the following structure:\n"
+                "{{\n  \"entries\": [\n    {{\n      \"type\": \"feat | fix | chore | docs | refactor | performance | security\",\n      \"description\": \"Brief explanation\"\n    }}\n  ]\n}}"
+            )
+            
             prompt = ChatPromptTemplate.from_messages([
-                ("system", CHANGELOG_SYSTEM_PROMPT),
+                ("system", system_prompt),
                 ("user", CHANGELOG_USER_PROMPT)
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff_optimized}, config=self._trace_config(context, "changelog"))
             
-            # Return raw markdown directly
-            return {"changelog_entry": response.content}
+            content = response.content.strip()
+            
+            # Remove possible markdown code fences if present (e.g. ```json ... ```)
+            if content.startswith("```"):
+                content = content.split("\n", 1)[-1]
+                if content.endswith("```"):
+                    content = content.rsplit("```", 1)[0]
+                content = content.strip()
+            
+            # Validate utilizing Pydantic
+            try:
+                parsed = json.loads(content)
+                validated = ChangelogResponse(**parsed)
+                
+                # Render validated JSON back to Keep-a-Changelog Markdown format
+                lines = []
+                for entry in validated.entries:
+                    lines.append(f"- {entry.type}: {entry.description}")
+                changelog_entry = "\n".join(lines)
+            except Exception as parse_err:
+                logger.warning(f"ChangelogAgent: Pydantic validation failed: {parse_err}")
+                raise ValueError(f"Invalid changelog response: {parse_err}") from parse_err
+            
+            return {"changelog_entry": changelog_entry}
         except Exception as e:
             return {"changelog_entry": f"Error: {str(e)}"}
 
@@ -292,8 +469,12 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
         
         if not diff:
             raise ValueError("Empty diff")
-        return diff, details
+            
+        max_chars = int(os.getenv("LLM_MAX_CONTEXT_CHARS", "12000"))
+        diff_opt = L1WorkingMemory.optimize_diff_context(diff, max_chars)
+        return diff_opt, details
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff, details = await self._get_commit_diff_and_details(context)
@@ -311,7 +492,7 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
                 "files_changed": details.get("files_changed", 0),
                 "additions": details.get("additions", 0),
                 "deletions": details.get("deletions", 0)
-            })
+            }, config=self._trace_config(context, "commit_pr_generator"))
             
             # Return raw markdown directly
             return {"pr_from_commit": response.content}
@@ -327,6 +508,7 @@ class CommitPRGeneratorAgent(BaseLLMAgent):
 class BranchPRGeneratorAgent(BaseLLMAgent):
     """Agent that generates PR title and description by comparing two branches."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             repo_name = context.get("repo_name")
@@ -373,7 +555,7 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
                 "files_changed": comparison.get("files_changed", 0),
                 "additions": comparison.get("additions", 0),
                 "deletions": comparison.get("deletions", 0)
-            })
+            }, config=self._trace_config(context, "branch_pr_generator"))
             
             return {
                 "pr_from_branch": response.content,
@@ -396,6 +578,7 @@ class BranchPRGeneratorAgent(BaseLLMAgent):
 class TestAgent(BaseLLMAgent):
     """Agent for analyzing test coverage and suggesting tests."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -406,7 +589,7 @@ class TestAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "test_analysis"))
             
             return {"testing_results": response.content}
         except Exception as e:
@@ -421,6 +604,7 @@ class TestAgent(BaseLLMAgent):
 class PerformanceAgent(BaseLLMAgent):
     """Agent for analyzing code performance and complexity."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -431,7 +615,7 @@ class PerformanceAgent(BaseLLMAgent):
             ])
 
             chain = prompt | self.llm
-            response = await chain.ainvoke({"diff": diff[:20000]})
+            response = await chain.ainvoke({"diff": diff[:20000]}, config=self._trace_config(context, "performance_analysis"))
             
             return {"performance_analysis": response.content}
         except Exception as e:
@@ -446,6 +630,7 @@ class PerformanceAgent(BaseLLMAgent):
 class SecurityAgent(BaseLLMAgent):
     """Agent for analyzing security vulnerabilities."""
     
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         try:
             diff = await self._get_diff(context)
@@ -488,7 +673,7 @@ class SecurityAgent(BaseLLMAgent):
             response = await chain.ainvoke({
                 "diff": diff[:20000],
                 "tool_output": tool_output[:5000] # Truncate to avoid context limit
-            })
+            }, config=self._trace_config(context, "security_analysis"))
             
             return {"security_analysis": response.content}
         except Exception as e:
@@ -506,6 +691,7 @@ class TestingAgent(TestAgent):
     pass
 
 class DocumentationAgent(BaseLLMAgent):
+    @tenant_scoped
     async def execute(self, context: PRAgentState) -> Dict[str, Any]:
         return {"documentation": "Documentation agent not fully implemented yet."}
     async def validate_input(self, context: PRAgentState) -> bool:
