@@ -33,7 +33,7 @@ LLM_CONFIG = {
     "nvidia_base_url": os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1"),
     
     # Shared Settings
-    "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
+    "temperature": float(os.getenv("LLM_TEMPERATURE", "0.2")),
     "max_tokens": int(os.getenv("LLM_MAX_TOKENS", "8000")),  # Increased default for larger models
 }
 
