@@ -180,3 +180,46 @@ async def test_changelog_agent(mock_llm_config, mock_chain, state):
             mock_chain_obj.ainvoke.return_value = MagicMock(content='{"entries": [{"type": "feat", "description": "Test feature"}]}')
             result_json = await agent.execute(state)
             assert result_json["changelog_entry"] == "- feat: Test feature"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_execution_fallback(mock_llm_config, mock_chain, state):
+    from src.agents.specialized import ChangelogAgent
+    import os
+    os.environ["ENABLE_CACHING"] = "False"
+    
+    # Configure mock config to use openrouter as primary
+    mock_llm_config.return_value["provider"] = "openrouter"
+    
+    # We mock _create_llm to simulate a primary provider failure and successful fallback
+    mock_primary_llm = MagicMock()
+    # The primary provider throws an error during ainvoke
+    mock_primary_llm.ainvoke = AsyncMock(side_effect=ValueError("Primary provider execution error"))
+    
+    mock_fallback_llm = MagicMock()
+    # The fallback provider successfully returns the JSON response
+    mock_fallback_llm.ainvoke = AsyncMock(return_value=MagicMock(content='{"entries": [{"type": "fix", "description": "Fallback success"}]}'))
+    
+    # Track calls to _create_llm
+    created_providers = []
+    def create_mock_llm(provider, config):
+        created_providers.append(provider)
+        if provider == "openrouter":
+            return mock_primary_llm
+        else:
+            return mock_fallback_llm
+            
+    with patch("src.agents.specialized.BaseLLMAgent._create_llm", side_effect=create_mock_llm):
+        # We start with openrouter as primary provider
+        os.environ["LLM_PROVIDER"] = "openrouter"
+        agent = ChangelogAgent()
+        
+        # Verify that during execute:
+        # 1. First openrouter tries and fails
+        # 2. Automatically falls back to other providers in the list (e.g. nvidia)
+        # 3. Succeeds using fallback
+        result = await agent.execute(state)
+        assert "changelog_entry" in result
+        assert result["changelog_entry"] == "- fix: Fallback success"
+        assert "openrouter" in created_providers
+        assert len(created_providers) > 1

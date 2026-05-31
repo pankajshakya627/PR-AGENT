@@ -5,6 +5,7 @@ from src.github_provider import GitHubProvider
 from src.config import get_llm_config
 from src.tenant import tenant_scoped
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 import json
 import os
 import tempfile
@@ -29,6 +30,60 @@ class ChangelogEntry(BaseModel):
 class ChangelogResponse(BaseModel):
     entries: List[ChangelogEntry]
 
+class FallbackLLMProxy(Runnable):
+    def __init__(self, agent: "BaseLLMAgent"):
+        self.agent = agent
+
+    def invoke(self, input, config=None, **kwargs):
+        primary_provider = self.agent.provider or self.agent.config.get("provider", "groq")
+        providers = [primary_provider] + [p for p in self.agent.PROVIDER_ORDER if p != primary_provider]
+        
+        last_error = None
+        for provider in providers:
+            try:
+                current_llm = self.agent._inner_llm
+                if provider != self.agent.provider:
+                    import logging
+                    logging.info(f"FallbackLLMProxy: Synchronous execution failed with {self.agent.provider}. Attempting fallback to {provider}...")
+                    current_llm = self.agent._create_llm(provider, self.agent.config)
+                
+                res = current_llm.invoke(input, config=config, **kwargs)
+                
+                if provider != self.agent.provider:
+                    self.agent._inner_llm = current_llm
+                    self.agent.provider = provider
+                return res
+            except Exception as e:
+                last_error = e
+                continue
+        raise last_error
+
+    async def ainvoke(self, input, config=None, **kwargs):
+        primary_provider = self.agent.provider or self.agent.config.get("provider", "groq")
+        providers = [primary_provider] + [p for p in self.agent.PROVIDER_ORDER if p != primary_provider]
+        
+        last_error = None
+        for provider in providers:
+            try:
+                current_llm = self.agent._inner_llm
+                if provider != self.agent.provider:
+                    import logging
+                    logging.info(f"FallbackLLMProxy: Async execution failed with {self.agent.provider}. Attempting fallback to {provider}...")
+                    current_llm = self.agent._create_llm(provider, self.agent.config)
+                
+                res = await current_llm.ainvoke(input, config=config, **kwargs)
+                
+                if provider != self.agent.provider:
+                    self.agent._inner_llm = current_llm
+                    self.agent.provider = provider
+                return res
+            except Exception as e:
+                last_error = e
+                import logging
+                logging.warning(f"FallbackLLMProxy: Fallback to {provider} failed during execution: {e}")
+                continue
+        raise last_error
+
 class BaseLLMAgent(BaseAgent):
     # Provider fallback order
     PROVIDER_ORDER = ["groq", "nvidia", "openrouter", "openai", "anthropic"]
@@ -36,7 +91,7 @@ class BaseLLMAgent(BaseAgent):
     def __init__(self):
         config = get_llm_config()
         self.config = config
-        self.llm = None
+        self._inner_llm = None
         self.provider = None
         
         # Try providers in order until one works
@@ -44,7 +99,7 @@ class BaseLLMAgent(BaseAgent):
         
         for provider in providers_to_try:
             try:
-                self.llm = self._create_llm(provider, config)
+                self._inner_llm = self._create_llm(provider, config)
                 self.provider = provider
                 break
             except Exception as e:
@@ -52,8 +107,10 @@ class BaseLLMAgent(BaseAgent):
                 logging.warning(f"Failed to initialize {provider}: {e}, trying next provider...")
                 continue
         
-        if self.llm is None:
+        if self._inner_llm is None:
             raise ValueError("All LLM providers failed to initialize")
+            
+        self.llm = FallbackLLMProxy(self)
     
     def _create_llm(self, provider: str, config: dict):
         """Create LLM instance for given provider."""
