@@ -5,6 +5,7 @@ Model responses are scripted; these tests do not claim live model reasoning.
 
 import asyncio
 import importlib
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -69,6 +70,7 @@ async def mcp_http(monkeypatch):
         calls=[],
         error=False,
         text=None,
+        payload=None,
         wait=False,
         entered=asyncio.Event(),
         cancelled=asyncio.Event(),
@@ -84,9 +86,16 @@ async def mcp_http(monkeypatch):
                 state.cancelled.set()
         if state.error:
             raise ValueError("PRIVATE_PROVIDER_DIAGNOSTIC")
-        if state.text is not None:
-            return state.text
-        return f"{name}: {SOURCE}\nDocumentation excerpt: cancellation uses CancelledError."
+        if state.payload is not None:
+            return json.dumps(state.payload)
+        excerpt = (
+            state.text
+            if state.text is not None
+            else "Documentation excerpt: cancellation uses CancelledError."
+        )
+        return json.dumps(
+            {"results": [{"url": SOURCE, "excerpts": [excerpt]}], "errors": []}
+        )
 
     @remote.tool(name="web_search")
     async def search(objective: str, search_queries: list[str], session_id: str) -> str:
@@ -352,7 +361,7 @@ async def test_fetch_only_preserves_url(runtime, mcp_http):
 
 @pytest.mark.asyncio
 async def test_response_budget_retains_both_results(runtime, mcp_http):
-    mcp_http.text = SOURCE + "\n" + "reference " * 5000
+    mcp_http.text = "reference " * 5000
     output = await ask(runtime, public_web_query=QUERY, public_web_urls=[SOURCE])
     web_context = runtime.prompts[-1][-1].content.split("Public documentation:\n", 1)[1]
     assert len(web_context) <= web_search.MAX_CONTEXT_CHARS
@@ -373,3 +382,42 @@ async def test_invalid_deadline_before_network(runtime, mcp_http, monkeypatch, v
     monkeypatch.setenv("PR_AGENT_SEARCH_TIMEOUT", value)
     assert "PR_AGENT_SEARCH_TIMEOUT" in await ask(runtime, public_web_query=QUERY)
     assert mcp_http.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"results": [], "errors": []},
+        {"results": [{"url": SOURCE, "excerpts": []}]},
+        {"results": [{"url": SOURCE, "excerpts": ["   "]}]},
+        {"unexpected": "PRIVATE_PROVIDER_DIAGNOSTIC"},
+        {"results": [{"url": SOURCE, "excerpts": "malformed"}]},
+        {
+            "results": [],
+            "errors": [
+                {
+                    "url": SOURCE,
+                    "error_type": "fetch_error",
+                    "http_status_code": 404,
+                    "content": "PRIVATE_PROVIDER_DIAGNOSTIC",
+                }
+            ],
+        },
+        {
+            "results": [{"url": SOURCE, "excerpts": ["valid excerpt"]}],
+            "errors": [
+                {
+                    "url": "https://example.com/missing",
+                    "content": "PRIVATE_PROVIDER_DIAGNOSTIC",
+                }
+            ],
+        },
+    ],
+)
+async def test_provider_payload_errors_do_not_reach_model(runtime, mcp_http, payload):
+    mcp_http.payload = payload
+    output = await ask(runtime, public_web_urls=[SOURCE])
+    assert "Error:" in output
+    assert "PRIVATE_PROVIDER_DIAGNOSTIC" not in output
+    assert runtime.prompts == []

@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import ipaddress
+import json
 import math
 import os
 from urllib.parse import urlsplit
@@ -62,10 +63,37 @@ def _text(result) -> str:
     if result.is_error:
         raise WebLookupError("Public web lookup failed; try again later.")
     text = "\n".join(block.text for block in result.content if block.type == "text")
-    if not text.strip():
+    try:
+        payload = json.loads(text)
+    except (ValueError, TypeError):
+        raise WebLookupError(
+            "Public web lookup returned no readable sources."
+        ) from None
+    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+        raise WebLookupError("Public web lookup returned no readable sources.")
+    # Fetch can report page failures inside an otherwise successful MCP result.
+    # Do not pass provider diagnostics to the model as if they were sources.
+    if payload.get("errors"):
+        raise WebLookupError(
+            "Public web lookup could not retrieve the requested sources."
+        )
+    sources = []
+    for item in payload["results"]:
+        if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+            raise WebLookupError("Public web lookup returned no readable sources.")
+        url = _public_url(item["url"])
+        excerpts = item.get("excerpts", [])
+        if not isinstance(excerpts, list) or any(
+            not isinstance(x, str) for x in excerpts
+        ):
+            raise WebLookupError("Public web lookup returned no readable sources.")
+        content = "\n".join(excerpts).strip()
+        if content:
+            sources.append(f"Source: {url}\n{content}")
+    if not sources:
         raise WebLookupError("Public web lookup returned no readable sources.")
     # Reserve space for both search and fetch when both are requested.
-    return text[:7500]
+    return "\n\n".join(sources)[:7500]
 
 
 async def documentation_context(context: dict) -> str:
