@@ -1,4 +1,5 @@
-fastmcp>=2.14.0
+# Older clients can forward inbound MCP credentials to downstream servers.
+fastmcp>=4.1.1
 python-dotenv
 PyGithub
 PyYAML

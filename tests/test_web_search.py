@@ -5,10 +5,10 @@ Model responses are scripted; these tests do not claim live model reasoning.
 
 import asyncio
 import importlib
-from importlib.metadata import version
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx2 as httpx
 import pytest
 import pytest_asyncio
 from fastmcp import Client, FastMCP
@@ -19,13 +19,6 @@ from langchain_core.runnables import RunnableLambda
 from src import tenant, web_search
 from src.agents.specialized import BaseLLMAgent, PRQuestionsAgent
 from src.analyzer import TaskDependencyAnalyzer
-
-# FastMCP 4 uses the MCP v2 HTTP client; 2/3 use httpx. The public
-# httpx_client_factory hook lets both exercise real serialized MCP HTTP requests.
-if int(version("fastmcp").split(".")[0]) >= 4:
-    import httpx2 as httpx
-else:
-    import httpx
 
 SOURCE = "https://docs.python.org/3/library/asyncio-task.html"
 QUERY = "Python asyncio cancellation documentation"
@@ -192,6 +185,42 @@ async def test_dispatch_to_http_and_prompt(runtime, mcp_http):
     )
     assert "untrusted reference material" in runtime.prompts[-1][0].content
     assert SOURCE in runtime.prompts[-1][-1].content
+
+
+@pytest.mark.asyncio
+async def test_inbound_http_credentials_are_not_forwarded(runtime, mcp_http):
+    app = runtime.server.http_app(path="/mcp", json_response=True, stateless_http=True)
+
+    def local_client(**kwargs):
+        return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), **kwargs)
+
+    incoming = StreamableHttpTransport(
+        "http://pr-agent.test/mcp",
+        headers={
+            "Authorization": "Bearer PRIVATE_CLIENT_TOKEN",
+            "Cookie": "private_session=PRIVATE_COOKIE",
+            "X-User-Secret": "PRIVATE_CUSTOM_HEADER",
+        },
+        httpx_client_factory=local_client,
+    )
+    async with app.router.lifespan_context(app), Client(incoming) as client:
+        result = await client.call_tool(
+            "ask_pr",
+            {
+                "pr_url": "https://github.com/example/repo/pull/42",
+                "question": "PRIVATE_QUESTION",
+                "tenant_id": "http-test",
+                "public_web_query": QUERY,
+                "public_web_urls": [SOURCE],
+            },
+        )
+    assert SOURCE in result.content[0].text
+    assert [name for name, _ in mcp_http.calls] == ["web_search", "web_fetch"]
+    for request in mcp_http.requests:
+        assert "authorization" not in request["headers"]
+        assert "cookie" not in request["headers"]
+        assert "x-user-secret" not in request["headers"]
+        assert "PRIVATE_" not in str(request)
 
 
 @pytest.mark.asyncio
