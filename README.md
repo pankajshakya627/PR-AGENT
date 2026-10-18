@@ -160,6 +160,51 @@ pr-agent/
 - **Flow:** Claude/IDE → MCP Protocol → `main.py` → `app.ainvoke()` → Agents → Response
 - **Tools:** Exposes `review_pr`, `describe_pr`, `ask_pr`, etc.
 
+#### Public documentation for PR questions
+
+The `ask_pr` MCP tool can use current public documentation when answering a PR
+question. Supply a separate `public_web_query`, up to five `public_web_urls`, or
+both. For example, call `ask_pr` with:
+
+```json
+{
+  "pr_url": "https://github.com/owner/repo/pull/123",
+  "tenant_id": "my-team",
+  "question": "Does this change handle cancellation correctly?",
+  "public_web_query": "Python asyncio cancellation documentation",
+  "public_web_urls": ["https://docs.python.org/3/library/asyncio-task.html"]
+}
+```
+
+Public lookups use [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+at `https://search.parallel.ai/mcp`. Search uses Fast mode and needs no account or
+API key. Only the separate public query and supplied URLs are sent to this
+service, together with an opaque identifier for the tenant/PR conversation.
+The PR diff, question, GitHub token and LLM credentials are not included in web
+requests. Keep lookup inputs public. The answer model still receives the PR
+context through the configured LLM provider, as usual.
+
+Parallel is the default search provider for an unconfigured installation. No
+web request is made when these lookup inputs are omitted. Set
+`PR_AGENT_SEARCH_PROVIDER=none` to disable lookup, or
+`PR_AGENT_WEB_SEARCH_ENABLED=false` to deny web access for all requests. Individual
+calls can also set `web_search_enabled=false`; they cannot override the operator's
+disabled setting. An unsupported provider returns an error without falling back.
+These settings are read on each call and do not change the LLM provider.
+
+Lookups have a 30-second total deadline, configurable with
+`PR_AGENT_SEARCH_TIMEOUT` (greater than 0, at most 120 seconds). Queries are limited
+to 1000 characters and URLs to 2048 characters each. URLs must use HTTP(S), standard
+web ports and public hosts, without credentials. Results are bounded excerpts,
+passed to the answer prompt as untrusted reference material with source URLs.
+The prompt requests citations; their accuracy still depends on the answer model.
+Lookup failures, including the free service's usage limits, return a clear error
+instead of presenting an answer as web-verified. Cancellation propagates to the
+MCP client. Web-assisted answers are retrieved afresh rather than cached; local
+answers are cached per tenant, PR and question. Direct `PRQuestionsAgent` callers
+can use the same fields in their state. The Streamlit form does not expose these
+lookup fields.
+
 ### 3. 📈 Langfuse Tracing & Monitoring
 
 PR-Agent can emit LangChain/LangGraph traces to Langfuse for monitoring LLM calls, fallbacks, latency, token usage, and per-tenant agent behavior. Tracing is optional and stays disabled unless Langfuse credentials are configured.

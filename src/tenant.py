@@ -150,8 +150,10 @@ def tenant_scoped(func):
                 # Construct safe cache key scoped to resource & tenant
                 url = context.get("pr_url") or context.get("commit_url") or f"{context.get('repo_name') or 'repo'}/{context.get('head_branch') or 'branch'}"
                 cache_key = f"{self.__class__.__name__}:{url}"
+                if hasattr(self, "cache_key"):
+                    cache_key = self.cache_key(context)
                 
-                cached = get_tenant_cached_value(cache_key)
+                cached = get_tenant_cached_value(cache_key) if cache_key is not None else None
                 if cached is not None:
                     log_tenant_action("cache_retrieve", f"Retrieved cached response for {self.__class__.__name__}")
                     return cached
@@ -164,7 +166,7 @@ def tenant_scoped(func):
             url = context.get("pr_url") or context.get("commit_url") or f"{context.get('repo_name') or 'repo'}/{context.get('head_branch') or 'branch'}"
             
             if result and "error" not in str(result):
-                if enable_caching:
+                if enable_caching and cache_key is not None:
                     set_tenant_cached_value(cache_key, result)
                 
                 # Record to L2 Episodic Memory

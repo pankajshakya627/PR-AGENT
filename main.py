@@ -202,12 +202,26 @@ async def improve_code(pr_url: str, tenant_id: Optional[str] = None) -> Dict[str
     return result.get("code_improvements", {})
 
 @mcp.tool()
-async def ask_pr(pr_url: str, question: str, tenant_id: Optional[str] = None) -> str:
-    """Asks a question about a Pull Request."""
+async def ask_pr(
+    pr_url: str,
+    question: str,
+    tenant_id: Optional[str] = None,
+    public_web_query: str = "",
+    public_web_urls: Optional[List[str]] = None,
+    web_search_enabled: bool = True,
+) -> str:
+    """Ask about a PR, optionally using current public documentation.
+
+    Only public_web_query and public_web_urls are sent to Parallel Search MCP.
+    Keep these inputs public; the PR diff and question are not sent to search.
+    Web lookup uses the anonymous Parallel provider unless disabled by the operator.
+    """
     from src.agents.specialized import PRQuestionsAgent
     from src.state import PRAgentState
     
     state: PRAgentState = {"pr_requirements": "", "pr_url": pr_url, "question": question, "github_token": None, "agent_results": {}, "execution_mode": "sequential", "task_graph": {}, "final_pr": None, "errors": [], "tenant_id": _tenant_id_for_request(tenant_id)}
+    state.update(public_web_query=public_web_query, public_web_urls=public_web_urls,
+                 web_search_enabled=web_search_enabled)
     agent = PRQuestionsAgent()
     result = await agent.execute(state)
     return result.get("answer", "No answer generated.")
