@@ -1,4 +1,5 @@
-fastmcp
+# Older clients can forward inbound MCP credentials to downstream servers.
+fastmcp>=4.1.1
 python-dotenv
 PyGithub
 PyYAML
@@ -7,6 +8,7 @@ streamlit>=1.29.0
 langchain-openai>=0.1.0
 langchain-anthropic>=0.1.0
 langchain-core>=0.2.0
+langgraph>=0.2.0
 langfuse>=3.0.0
 streamlit-authenticator
 bcrypt>=4.0.0

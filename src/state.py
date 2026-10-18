@@ -40,6 +40,10 @@ class PRAgentState(TypedDict):
     diff_content: Optional[str]
     pr_details: Optional[Dict[str, Any]]
     file_tree: Optional[List[str]]
+    question: str
+    public_web_query: str
+    public_web_urls: Optional[List[str]]
+    web_search_enabled: bool
 
     # Execution tracking
     task_graph: Dict[str, List[str]]  # Task dependencies
