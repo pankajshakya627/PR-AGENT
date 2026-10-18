@@ -72,6 +72,7 @@ async def mcp_http(monkeypatch):
     remote = FastMCP("search-fixture")
     state = SimpleNamespace(
         requests=[],
+        clients=[],
         calls=[],
         error=False,
         text=None,
@@ -124,11 +125,13 @@ async def mcp_http(monkeypatch):
         )
 
     def factory(**kwargs):
-        return httpx.AsyncClient(
+        client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             event_hooks={"request": [record]},
             **kwargs,
         )
+        state.clients.append(client)
+        return client
 
     def transport(url, **kwargs):
         return StreamableHttpTransport(url, httpx_client_factory=factory, **kwargs)
@@ -273,11 +276,11 @@ async def test_provider_errors_are_safe_no_model_fallback(runtime, mcp_http):
 
 
 @pytest.mark.asyncio
-async def test_timeout_closes_http_request(runtime, mcp_http, monkeypatch):
+async def test_timeout_closes_http_client(runtime, mcp_http, monkeypatch):
     mcp_http.wait = True
     monkeypatch.setenv("PR_AGENT_SEARCH_TIMEOUT", "0.15")
     assert "timed out" in await ask(runtime, public_web_query=QUERY)
-    await asyncio.wait_for(mcp_http.cancelled.wait(), 1)
+    assert mcp_http.clients and all(client.is_closed for client in mcp_http.clients)
     assert runtime.prompts == []
 
 
@@ -298,7 +301,7 @@ async def test_cancellation_propagates(runtime, mcp_http):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    await asyncio.wait_for(mcp_http.cancelled.wait(), 1)
+    assert mcp_http.clients and all(client.is_closed for client in mcp_http.clients)
     assert runtime.prompts == []
 
 
